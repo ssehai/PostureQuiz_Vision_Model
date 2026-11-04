@@ -5,6 +5,8 @@ const NEUTRAL = { L: { a: [8, 5], g: [3, 2] }, R: { a: [8, 5], g: [3, 2] } };
 
 export class SimTracker {
   constructor() {
+    this.kind = 'sim';
+    this.label = '시뮬레이션';
     this.t0 = performance.now();
     this.getPose = () => null; // 앱이 현재 목표 자세를 알려줌
     this.players = [
@@ -13,6 +15,7 @@ export class SimTracker {
     ];
   }
   async start() {}
+  stop() {}
   get width() { return 1280; }
   get height() { return 720; }
 

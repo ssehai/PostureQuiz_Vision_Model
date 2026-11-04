@@ -55,6 +55,10 @@
         <label>난이도
           <select id="difficulty"><option value="easy">쉬움</option><option value="normal">보통</option><option value="hard">어려움</option></select>
         </label>
+        <label>카메라
+          <select id="camera"><option value="">기본 카메라</option></select>
+          <small id="cameraNote" class="note"></small>
+        </label>
         <label>인식 모델
           <select id="model"><option value="lite">빠름 (노트북 권장)</option><option value="full">정확 (좋은 PC)</option></select>
         </label>
@@ -84,6 +88,7 @@
     <div class="lobby-right card">
       <h2>다음 대결</h2>
       <div class="versus" id="versus"></div>
+      <div id="modeInfo" class="mode-info"></div>
       <div class="presence">
         <span id="pres0">왼쪽 선수 ⏳</span>
         <span id="pres1">오른쪽 선수 ⏳</span>

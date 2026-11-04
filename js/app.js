@@ -1,7 +1,7 @@
 // 얼음! 자세 버티기 - 메인 게임 흐름
 import { POSES, BONES, JOINTS, LM } from './poses.js';
 import { PlayerJudge, DIFFICULTY } from './judge.js';
-import { CameraTracker } from './tracker.js';
+import { CameraTracker, listCameras } from './tracker.js';
 import { SimTracker } from './sim.js';
 import { sfx } from './sound.js';
 
@@ -19,7 +19,7 @@ const STORE_KEY = 'posequiz-v1';
 
 // ---------------- 상태 ----------------
 const state = {
-  settings: { teamCount: 2, lives: 3, roundSec: 60, poseSec: 15, difficulty: 'normal', model: 'lite' },
+  settings: { teamCount: 2, lives: 3, roundSec: 60, poseSec: 15, difficulty: 'normal', model: 'lite', cameraId: '' },
   teams: TEAM_PRESETS.map((t) => ({ ...t, membersText: '', score: 0, played: 0, done: [] })),
   history: [],
   screen: 'setup',
@@ -94,6 +94,7 @@ function readSetup() {
   s.poseSec = +$('poseSec').value;
   s.difficulty = $('difficulty').value;
   s.model = $('model').value;
+  s.cameraId = $('camera').value;
   document.querySelectorAll('.tname').forEach((el) => { state.teams[+el.dataset.i].name = el.value.trim() || TEAM_PRESETS[+el.dataset.i].name; });
   document.querySelectorAll('.tmembers').forEach((el) => {
     const t = state.teams[+el.dataset.i];
@@ -102,33 +103,61 @@ function readSetup() {
   save();
 }
 
+// 설정 화면의 카메라 선택 목록 채우기
+async function refreshCameras() {
+  const sel = $('camera');
+  let cams = [];
+  try { cams = await listCameras(); } catch { /* 무시 */ }
+  const want = state.settings.cameraId;
+  sel.innerHTML = '<option value="">기본 카메라</option>' +
+    cams.map((c, i) => `<option value="${esc(c.deviceId)}">${esc(c.label || `카메라 ${i + 1}`)}</option>`).join('');
+  sel.value = cams.some((c) => c.deviceId === want) ? want : '';
+  $('cameraNote').textContent = cams.length
+    ? `카메라 ${cams.length}개 찾음${cams.some((c) => !c.label) ? ' · 이름은 권한을 허용하면 보여요' : ''}`
+    : '연결된 카메라를 찾지 못했어요';
+}
+
 async function startApp(sim) {
   readSetup();
   sfx.unlock();
-  $('setupMsg').textContent = '';
-  if (state.tracker) { drawNext(); show('lobby'); return; }
+  const msg = $('setupMsg');
+  msg.textContent = '';
+  const cur = state.tracker;
+  const s = state.settings;
+  // 같은 모드/같은 카메라/같은 모델이면 그대로 사용, 아니면 끄고 새로 시작
+  const same = cur && (sim
+    ? cur.kind === 'sim'
+    : cur.kind === 'camera' && cur.model === s.model && (cur.deviceId || '') === s.cameraId);
+  if (same) { drawNext(); show('lobby'); return; }
+  if (cur) { cur.stop(); state.tracker = null; }
+
   const btns = [$('startBtn'), $('simBtn')];
   btns.forEach((b) => (b.disabled = true));
   try {
     if (sim) {
-      state.tracker = new SimTracker();
-      state.tracker.getPose = () => (state.match && state.match.phase !== 'done' ? state.match.pose : null);
-    } else {
-      $('setupMsg').style.color = 'var(--muted)';
-      $('setupMsg').textContent = '카메라와 AI 모델을 불러오는 중... (처음엔 10초쯤 걸려요)';
-      const t = new CameraTracker($('video'));
-      await t.start(state.settings.model);
+      const t = new SimTracker();
+      t.getPose = () => (state.match && state.match.phase !== 'done' ? state.match.pose : null);
       state.tracker = t;
+    } else {
+      msg.style.color = 'var(--muted)';
+      msg.textContent = '카메라와 AI 모델을 불러오는 중... (처음엔 10초쯤 걸려요)';
+      const t = new CameraTracker($('video'));
+      await t.start(s.model, s.cameraId);
+      state.tracker = t;
+      refreshCameras(); // 권한을 받았으니 카메라 이름이 보이게 다시 채움
     }
-    $('setupMsg').textContent = '';
+    msg.textContent = '';
     drawNext();
     show('lobby');
   } catch (e) {
     console.error(e);
-    $('setupMsg').style.color = 'var(--bad)';
-    $('setupMsg').textContent = e && e.name === 'NotAllowedError'
-      ? '카메라 권한이 거부됐어요. 주소창의 카메라 아이콘에서 허용해 주세요.'
-      : `카메라/모델을 시작하지 못했어요: ${e.message || e}`;
+    msg.style.color = 'var(--bad)';
+    const n = e && e.name;
+    msg.textContent =
+      n === 'NotAllowedError' ? '카메라 권한이 거부됐어요. 주소창 왼쪽의 아이콘을 눌러 카메라를 "허용"으로 바꾼 뒤 다시 눌러 주세요. (Mac은 시스템 설정 → 개인정보 보호 → 카메라에서 Chrome도 켜져 있어야 해요)'
+      : n === 'NotFoundError' || n === 'OverconstrainedError' ? '선택한 카메라를 찾지 못했어요. 케이블을 확인하고 카메라 목록에서 다시 골라 주세요.'
+      : n === 'NotReadableError' ? '다른 프로그램(줌, 팀즈, 다른 탭 등)이 카메라를 쓰고 있어요. 그 프로그램을 끄고 다시 눌러 주세요.'
+      : `카메라/모델을 시작하지 못했어요: ${(e && e.message) || e}`;
   } finally {
     btns.forEach((b) => (b.disabled = false));
   }
@@ -164,6 +193,11 @@ function renderLobby(roll = false) {
     .slice().sort((a, b) => b.score - a.score)
     .map((t) => `<div class="team-score" style="background:${t.color}"><span>${esc(t.name)}<small>남은 선수 ${remaining(t).length}명</small></span><b>${t.score}점</b></div>`).join('');
   $('history').innerHTML = state.history.slice(0, 8).map((h) => `<li>${esc(h)}</li>`).join('') || '<li>아직 대결이 없어요</li>';
+  const tr = state.tracker;
+  $('modeInfo').textContent = !tr ? '' : tr.kind === 'sim'
+    ? '🧪 시뮬레이션 모드 (가상 선수) · 웹캠을 쓰려면 ⚙️ 설정 → 카메라 켜고 시작'
+    : `📷 ${tr.label}`;
+  $('modeInfo').className = `mode-info ${tr && tr.kind === 'sim' ? 'sim' : ''}`;
   const n = state.next;
   const v = $('versus');
   $('fightBtn').disabled = !n;
@@ -513,7 +547,8 @@ load();
 renderSetup();
 bind();
 requestAnimationFrame(frame);
-if (new URLSearchParams(location.search).has('sim')) startApp(true);
+refreshCameras();
+navigator.mediaDevices?.addEventListener?.('devicechange', refreshCameras);
 
 // 디버그용
 window.__game = state;

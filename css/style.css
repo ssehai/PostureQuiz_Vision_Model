@@ -129,3 +129,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 #lobby { flex-wrap: wrap; }
 .team-score small { display: block; font-size: 15px; opacity: .85; }
 .team-score span { min-width: 0; }
+.row label .note { font-size: 13px; color: var(--muted); max-width: 240px; }
+#camera { max-width: 260px; }
+.mode-info { font-size: 16px; color: var(--muted); margin: 10px 0 0; }
+.mode-info.sim { color: #c0571f; }
