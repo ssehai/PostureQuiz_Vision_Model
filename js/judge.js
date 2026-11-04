@@ -1,0 +1,144 @@
+// 한 선수의 판정 상태: 좌표 스무딩, 흔들림 측정, 자세 일치도, 위험 게이지, 생명
+import { LM, JOINTS, computeAngles, poseSimilarity } from './poses.js';
+
+// 난이도별 기준값
+export const DIFFICULTY = {
+  easy:   { label: '쉬움',   wobble: 0.13,  match: 0.62 },
+  normal: { label: '보통',   wobble: 0.09,  match: 0.7 },
+  hard:   { label: '어려움', wobble: 0.065, match: 0.78 },
+};
+
+const SMOOTH = 0.45;        // 좌표 EMA 계수 (작을수록 부드럽게)
+const WINDOW = 0.8;         // 흔들림을 재는 시간 창(초)
+const MISSING_LIMIT = 0.35; // 이 시간(초) 이상 안 보이면 '안 보임' 처리
+const INVINCIBLE = 1.6;     // 생명 잃은 뒤 무적 시간(초)
+
+// 큰 관절이 전부 화면 안에 보이는지
+export function isFullBody(lms) {
+  for (const i of [LM.nose, ...JOINTS]) {
+    const p = lms[i];
+    if (!p) return false;
+    if (p.visibility != null && p.visibility < 0.3) return false;
+    if (p.x < -0.03 || p.x > 1.03 || p.y < -0.03 || p.y > 1.03) return false;
+  }
+  return true;
+}
+
+export class PlayerJudge {
+  constructor(lives) {
+    this.maxLives = lives;
+    this.reset(lives);
+  }
+
+  reset(lives = this.maxLives) {
+    this.lives = lives;
+    this.smooth = null;     // 스무딩된 좌표 (index → {x,y})
+    this.hist = [];         // 최근 WINDOW초 동안의 정규화 좌표
+    this.clock = 0;
+    this.wobble = 0;        // 최근 0.8초 동안 관절이 평균 위치에서 벗어난 정도 (몸통 길이 단위)
+    this.match = 0;         // 0~1 자세 일치도
+    this.danger = 0;        // 0~1, 가득 차면 생명 -1
+    this.invincible = 0;
+    this.missingFor = 0;
+    this.visible = false;
+    this.fullBody = false;
+    this.status = 'wait';   // ok | wobble | pose | missing | wait
+    this.matchSum = 0; this.matchN = 0; this.okTime = 0;
+    this.lastHit = -1;
+  }
+
+  // 새 프레임의 랜드마크 반영 (lms: 화면 기준 0~1 좌표, 이미 거울 반전된 값)
+  // aspect = 화면 가로/세로. 각도가 찌그러지지 않도록 x에 곱해 정사각 좌표로 바꾼다.
+  observe(lms, dt, aspect = 16 / 9) {
+    if (!lms) {
+      this.missingFor += dt;
+      if (this.missingFor > MISSING_LIMIT) { this.visible = false; this.smooth = null; this.hist = []; }
+      return;
+    }
+    this.missingFor = 0;
+    this.visible = true;
+    this.fullBody = isFullBody(lms);
+
+    if (!this.smooth) {
+      this.smooth = {};
+      for (const i of [LM.nose, ...JOINTS]) this.smooth[i] = { x: lms[i].x * aspect, y: lms[i].y };
+    } else {
+      for (const i of [LM.nose, ...JOINTS]) {
+        const s = this.smooth[i];
+        s.x += (lms[i].x * aspect - s.x) * SMOOTH;
+        s.y += (lms[i].y - s.y) * SMOOTH;
+      }
+    }
+
+    // 몸통 길이로 정규화 → 카메라 거리/키와 무관하게 공정한 흔들림 측정
+    const s = this.smooth;
+    const hip = mid(s[LM.lHip], s[LM.rHip]);
+    const sh = mid(s[LM.lShoulder], s[LM.rShoulder]);
+    const torso = Math.max(0.02, Math.hypot(sh.x - hip.x, sh.y - hip.y));
+    const norm = { hip: { x: hip.x / torso, y: hip.y / torso } };
+    for (const i of JOINTS) norm[i] = { x: (s[i].x - hip.x) / torso, y: (s[i].y - hip.y) / torso };
+
+    // 흔들림 = 최근 WINDOW초 동안 각 관절 위치의 표준편차 평균.
+    // 프레임마다 속도를 더하는 방식은 카메라 fps와 좌표 떨림에 민감해서, 위치 분산을 쓴다.
+    this.clock += dt;
+    this.hist.push({ t: this.clock, norm });
+    while (this.hist.length && this.clock - this.hist[0].t > WINDOW) this.hist.shift();
+    if (this.hist.length >= 4) {
+      const keys = ['hip', ...JOINTS];
+      let total = 0;
+      for (const k of keys) {
+        let mx = 0, my = 0;
+        for (const h of this.hist) { mx += h.norm[k].x; my += h.norm[k].y; }
+        mx /= this.hist.length; my /= this.hist.length;
+        let v = 0;
+        for (const h of this.hist) v += (h.norm[k].x - mx) ** 2 + (h.norm[k].y - my) ** 2;
+        total += Math.sqrt(v / this.hist.length) * (k === 'hip' ? 3 : 1); // 몸 전체가 휘청이는 건 가중
+      }
+      this.wobble = total / (keys.length + 2);
+    }
+    this.angles = computeAngles(s);
+  }
+
+  // 판정 한 스텝. judging=false면 게이지만 서서히 줄어든다(자세 바꾸는 준비 시간).
+  // 반환값: 이번 스텝에 생명을 잃었으면 true
+  step(dt, pose, diff, judging, now) {
+    this.match = this.visible && this.angles && pose ? poseSimilarity(this.angles, pose) : 0;
+    this.invincible = Math.max(0, this.invincible - dt);
+
+    let rate = 0;
+    if (!this.visible || !this.fullBody) {
+      this.status = 'missing'; rate = 0.8;
+    } else if (this.wobble > diff.wobble) {
+      this.status = 'wobble'; rate = 1.0 + 2.5 * (this.wobble - diff.wobble) / diff.wobble;
+    } else if (this.match < diff.match) {
+      this.status = 'pose'; rate = 0.75;
+    } else {
+      this.status = 'ok';
+    }
+
+    if (!judging) {
+      this.danger = Math.max(0, this.danger - dt * 0.8);
+      return false;
+    }
+
+    this.matchSum += this.match; this.matchN++;
+    if (this.status === 'ok') this.okTime += dt;
+
+    if (this.invincible > 0) { this.danger = Math.max(0, this.danger - dt * 0.5); return false; }
+    if (rate > 0) this.danger += dt * rate;
+    else this.danger = Math.max(0, this.danger - dt * 0.35);
+
+    if (this.danger >= 1) {
+      this.danger = 0;
+      this.lives = Math.max(0, this.lives - 1);
+      this.invincible = INVINCIBLE;
+      this.lastHit = now;
+      return true;
+    }
+    return false;
+  }
+
+  get avgMatch() { return this.matchN ? this.matchSum / this.matchN : 0; }
+}
+
+function mid(a, b) { return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }; }

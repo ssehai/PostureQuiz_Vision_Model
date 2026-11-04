@@ -1,0 +1,127 @@
+:root {
+  --panel-h: 150px;
+  --bg: #11151f;
+  --card: rgba(255, 255, 255, 0.95);
+  --ink: #1d2433;
+  --muted: #5d667a;
+  --accent: #ff7a3d;
+  --good: #2fbf71;
+  --bad: #ff4d5e;
+  --warn: #ffb020;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--ink);
+  font-family: 'Jua', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif; }
+button, select, input, textarea { font: inherit; }
+
+#video { display: none; }
+#stage { position: fixed; inset: 0; width: 100vw; height: 100vh; object-fit: contain; background: #000; }
+/* 게임 중엔 아래쪽 선수 패널 자리만큼 영상을 올려서 발이 가려지지 않게 */
+body.playing #stage { height: calc(100vh - var(--panel-h)); }
+
+.hidden { display: none !important; }
+
+/* ---------- 공통 카드/버튼 ---------- */
+.screen { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+  gap: 24px; padding: 24px; background: rgba(10, 14, 22, 0.55); overflow: auto; }
+.card { background: var(--card); border-radius: 24px; padding: 28px 32px; box-shadow: 0 20px 60px rgba(0,0,0,.35);
+  max-width: 560px; width: 100%; }
+.card.wide { max-width: 980px; }
+h1 { margin: 0 0 4px; font-size: 44px; font-weight: 400; }
+h2 { margin: 0 0 16px; font-size: 32px; font-weight: 400; }
+h3 { margin: 20px 0 8px; font-size: 22px; font-weight: 400; color: var(--muted); }
+.sub { margin: 0 0 20px; color: var(--muted); font-size: 20px; }
+.tip { color: var(--muted); font-size: 17px; margin: 10px 0; }
+.msg { color: var(--bad); min-height: 1.2em; font-size: 18px; }
+
+.row { display: flex; flex-wrap: wrap; gap: 12px 18px; margin-bottom: 16px; }
+.row label { display: flex; flex-direction: column; font-size: 16px; color: var(--muted); gap: 4px; }
+select, input, textarea { border: 2px solid #d9dde6; border-radius: 12px; padding: 8px 10px; background: #fff; color: var(--ink); font-size: 18px; }
+textarea { resize: vertical; min-height: 120px; width: 100%; }
+
+.teams { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; }
+.team-edit { border-radius: 16px; padding: 12px; border: 3px solid; display: flex; flex-direction: column; gap: 8px; }
+.team-edit input { width: 100%; font-size: 20px; }
+
+.actions { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 18px; }
+button { border: none; border-radius: 14px; padding: 12px 20px; font-size: 20px; cursor: pointer; background: #e6e9f0; color: var(--ink); }
+button:hover { filter: brightness(0.96); }
+button.primary { background: var(--accent); color: #fff; font-size: 24px; padding: 14px 28px; }
+kbd { font-family: inherit; font-size: 14px; opacity: .7; border: 1px solid currentColor; border-radius: 6px; padding: 0 5px; margin-left: 6px; }
+
+/* ---------- 대기실 ---------- */
+#lobby { align-items: stretch; }
+.lobby-left, .lobby-right { max-width: 460px; align-self: center; }
+.team-score { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; border-radius: 14px; margin-bottom: 8px; color: #fff; font-size: 26px; }
+.team-score b { font-size: 34px; font-weight: 400; }
+#history { padding-left: 22px; margin: 0; font-size: 18px; color: var(--muted); max-height: 180px; overflow: auto; }
+.small-actions { display: flex; gap: 8px; margin-top: 16px; }
+.small-actions button { font-size: 16px; padding: 8px 14px; }
+
+.versus { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 10px; text-align: center; }
+.versus .who { border-radius: 18px; padding: 16px 8px; color: #fff; }
+.versus .who .team { font-size: 18px; opacity: .9; }
+.versus .who .name { font-size: 36px; }
+.versus .vs { font-size: 34px; color: var(--accent); }
+.versus.rolling .name { animation: shake .12s infinite; }
+@keyframes shake { 50% { transform: translateY(-3px); } }
+.presence { display: flex; justify-content: space-between; margin-top: 14px; font-size: 18px; }
+.presence .on { color: var(--good); }
+
+/* ---------- 게임 HUD ---------- */
+#hud { position: fixed; inset: 0; pointer-events: none; }
+.topbar { position: absolute; top: 14px; left: 14px; right: 14px; display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.round-timer { background: rgba(0,0,0,.55); color: #fff; border-radius: 20px; padding: 10px 18px; font-size: 54px; min-width: 120px; text-align: center; }
+.round-timer small { font-size: 22px; margin-left: 2px; }
+.round-timer.ghosty { background: transparent; }
+.pose-card { display: flex; gap: 14px; align-items: center; background: var(--card); border-radius: 22px; padding: 10px 22px 10px 10px; box-shadow: 0 10px 30px rgba(0,0,0,.3); }
+#ghost { width: 120px; height: 134px; background: #eef1f7; border-radius: 16px; }
+.pose-name { font-size: 46px; line-height: 1.1; }
+.pose-hint { font-size: 20px; color: var(--muted); margin-bottom: 8px; }
+.pose-phase { font-size: 18px; margin-top: 6px; color: var(--accent); }
+.bar { height: 12px; background: #e3e7ef; border-radius: 99px; overflow: hidden; min-width: 260px; }
+.bar > div { height: 100%; background: var(--accent); width: 0; transition: width .1s linear; }
+
+.player-panel { position: absolute; bottom: 10px; left: 12px; width: calc(50vw - 18px); height: calc(var(--panel-h) - 20px); background: rgba(0,0,0,.72); color: #fff; border-radius: 20px; padding: 10px 16px; border: 4px solid transparent;
+  display: grid; grid-template-columns: 1fr 1.1fr; gap: 14px; align-items: center; }
+.player-panel.right { left: auto; right: 12px; }
+.player-panel .who { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.player-panel .pname { font-size: 34px; }
+.player-panel .pteam { font-size: 18px; opacity: .85; }
+.player-panel .hearts { font-size: 30px; letter-spacing: 2px; margin: 2px 0; }
+.player-panel .hearts .lost { filter: grayscale(1); opacity: .35; }
+.meter { display: grid; grid-template-columns: 74px 1fr 52px; align-items: center; gap: 8px; font-size: 16px; margin-top: 4px; }
+.meter .track { height: 14px; background: rgba(255,255,255,.18); border-radius: 99px; overflow: hidden; }
+.meter .fill { height: 100%; width: 0; border-radius: 99px; }
+.status { font-size: 24px; min-height: 1.3em; }
+.status.ok { color: var(--good); }
+.status.wobble, .status.missing { color: var(--bad); }
+.status.pose { color: var(--warn); }
+.player-panel.hit { animation: hit .5s; }
+@keyframes hit { 0%,100% { background: rgba(0,0,0,.6); } 30% { background: rgba(255,60,80,.85); transform: scale(1.03); } }
+.player-panel.out { opacity: .55; }
+
+#bigText { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none;
+  font-size: 22vh; color: #fff; text-shadow: 0 8px 30px rgba(0,0,0,.6); }
+#bigText.pop { animation: pop .6s ease-out; }
+@keyframes pop { from { transform: scale(1.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+/* ---------- 결과 ---------- */
+.result-title { font-size: 52px; text-align: center; }
+.result-body { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 18px; }
+.result-body .rcol { border-radius: 16px; padding: 14px; color: #fff; text-align: center; font-size: 20px; }
+.result-body .rcol .big { font-size: 32px; }
+#result .actions { justify-content: center; }
+
+@media (max-width: 760px) {
+  :root { --panel-h: 210px; }
+  .player-panel { grid-template-columns: 1fr; gap: 2px; padding: 8px 10px; }
+  .meter { grid-template-columns: 52px 1fr 34px; font-size: 13px; }
+  h1 { font-size: 32px; }
+  .pose-name { font-size: 30px; }
+  .round-timer { font-size: 34px; min-width: 80px; }
+  .round-timer.ghosty { display: none; }
+  .bar { min-width: 140px; }
+  .player-panel .pname { font-size: 24px; }
+}

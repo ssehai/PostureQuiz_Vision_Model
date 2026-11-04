@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>얼음! 자세 버티기</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Jua&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <video id="video" playsinline muted></video>
+  <canvas id="stage"></canvas>
+
+  <!-- 게임 중 HUD -->
+  <div id="hud" class="hidden">
+    <div class="topbar">
+      <div class="round-timer"><span id="roundTime">60</span><small>초</small></div>
+      <div class="pose-card">
+        <canvas id="ghost" width="180" height="200"></canvas>
+        <div class="pose-info">
+          <div class="pose-name"><span id="poseEmoji"></span> <span id="poseName"></span></div>
+          <div class="pose-hint" id="poseHint"></div>
+          <div class="bar"><div id="poseBar"></div></div>
+          <div class="pose-phase" id="posePhase"></div>
+        </div>
+      </div>
+      <div class="round-timer ghosty"><span>⛄</span></div>
+    </div>
+    <div class="player-panel" id="panel0"></div>
+    <div class="player-panel right" id="panel1"></div>
+  </div>
+
+  <!-- 큰 글씨 알림 (카운트다운 등) -->
+  <div id="bigText" class="hidden"></div>
+
+  <!-- 설정 화면 -->
+  <section id="setup" class="screen">
+    <div class="card wide">
+      <h1>⛄ 얼음! 자세 버티기</h1>
+      <p class="sub">화면 속 자세를 따라 하고, 흔들리지 않고 오래 버티는 사람이 이겨요!</p>
+      <div class="row">
+        <label>팀 수
+          <select id="teamCount"><option>2</option><option>3</option><option>4</option></select>
+        </label>
+        <label>생명
+          <select id="lives"><option>3</option><option>4</option><option>5</option></select>
+        </label>
+        <label>대결 시간
+          <select id="roundSec"><option value="30">30초</option><option value="45">45초</option><option value="60">60초</option><option value="90">90초</option></select>
+        </label>
+        <label>자세 바뀌는 간격
+          <select id="poseSec"><option value="10">10초</option><option value="15">15초</option><option value="20">20초</option></select>
+        </label>
+        <label>난이도
+          <select id="difficulty"><option value="easy">쉬움</option><option value="normal">보통</option><option value="hard">어려움</option></select>
+        </label>
+        <label>인식 모델
+          <select id="model"><option value="lite">빠름 (노트북 권장)</option><option value="full">정확 (좋은 PC)</option></select>
+        </label>
+      </div>
+      <div id="teams" class="teams"></div>
+      <p class="tip">팀원 이름은 한 줄에 한 명씩 적어요. 비워 두면 "선수 1~5"로 채워져요.</p>
+      <div class="actions">
+        <button id="startBtn" class="primary">📷 카메라 켜고 시작</button>
+        <button id="simBtn">카메라 없이 체험 (시뮬레이션)</button>
+      </div>
+      <p id="setupMsg" class="msg"></p>
+    </div>
+  </section>
+
+  <!-- 대기실: 점수판 + 다음 대결 뽑기 -->
+  <section id="lobby" class="screen hidden">
+    <div class="lobby-left card">
+      <h2>🏆 점수판</h2>
+      <div id="scoreboard"></div>
+      <h3>최근 대결</h3>
+      <ol id="history"></ol>
+      <div class="small-actions">
+        <button id="settingsBtn">⚙️ 설정</button>
+        <button id="resetScoreBtn">점수 초기화</button>
+      </div>
+    </div>
+    <div class="lobby-right card">
+      <h2>다음 대결</h2>
+      <div class="versus" id="versus"></div>
+      <div class="presence">
+        <span id="pres0">왼쪽 선수 ⏳</span>
+        <span id="pres1">오른쪽 선수 ⏳</span>
+      </div>
+      <p class="tip">두 선수는 화면 왼쪽/오른쪽에 서서 머리부터 발끝까지 보이게 해 주세요.</p>
+      <div class="actions">
+        <button id="drawBtn">🎲 다시 뽑기 <kbd>R</kbd></button>
+        <button id="fightBtn" class="primary">대결 시작! <kbd>Space</kbd></button>
+      </div>
+    </div>
+  </section>
+
+  <!-- 결과 -->
+  <section id="result" class="screen hidden">
+    <div class="card">
+      <div id="resultTitle" class="result-title"></div>
+      <div id="resultBody" class="result-body"></div>
+      <div class="actions">
+        <button id="nextBtn" class="primary">다음 대결 <kbd>Space</kbd></button>
+      </div>
+    </div>
+  </section>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
