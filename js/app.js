@@ -20,7 +20,7 @@ const STORE_KEY = 'posequiz-v1';
 // ---------------- 상태 ----------------
 const state = {
   settings: { teamCount: 2, lives: 3, roundSec: 60, poseSec: 15, difficulty: 'normal', model: 'lite' },
-  teams: TEAM_PRESETS.map((t) => ({ ...t, membersText: '', score: 0, played: 0, queue: [] })),
+  teams: TEAM_PRESETS.map((t) => ({ ...t, membersText: '', score: 0, played: 0, done: [] })),
   history: [],
   screen: 'setup',
   tracker: null,
@@ -35,7 +35,7 @@ function load() {
     if (!raw) return;
     const d = JSON.parse(raw);
     Object.assign(state.settings, d.settings || {});
-    (d.teams || []).forEach((t, i) => { if (state.teams[i]) Object.assign(state.teams[i], t, { queue: [] }); });
+    (d.teams || []).forEach((t, i) => { if (state.teams[i]) Object.assign(state.teams[i], t, { done: Array.isArray(t.done) ? t.done : [] }); });
     state.history = d.history || [];
   } catch { /* 저장소를 못 쓰는 환경이면 무시 */ }
 }
@@ -43,7 +43,7 @@ function save() {
   try {
     localStorage.setItem(STORE_KEY, JSON.stringify({
       settings: state.settings,
-      teams: state.teams.map(({ name, color, membersText, score, played }) => ({ name, color, membersText, score, played })),
+      teams: state.teams.map(({ name, color, membersText, score, played, done }) => ({ name, color, membersText, score, played, done })),
       history: state.history.slice(0, 30),
     }));
   } catch { /* 무시 */ }
@@ -97,7 +97,7 @@ function readSetup() {
   document.querySelectorAll('.tname').forEach((el) => { state.teams[+el.dataset.i].name = el.value.trim() || TEAM_PRESETS[+el.dataset.i].name; });
   document.querySelectorAll('.tmembers').forEach((el) => {
     const t = state.teams[+el.dataset.i];
-    if (t.membersText !== el.value) { t.membersText = el.value; t.queue = []; }
+    t.membersText = el.value;
   });
   save();
 }
@@ -135,28 +135,43 @@ async function startApp(sim) {
 }
 
 // ---------------- 대기실 ----------------
-function pickMember(team) {
-  if (!team.queue.length) team.queue = shuffle(members(team));
-  return team.queue.pop();
+// 점수 초기화 전까지 이미 대결한 선수(team.done)는 뽑지 않는다
+function remaining(team) {
+  return members(team).filter((m) => !team.done.includes(m));
 }
+const pickRandom = (arr) => arr[Math.floor(Math.random() * arr.length)];
+
 function drawNext() {
-  const teams = activeTeams();
+  const prev = state.next;
+  const teams = activeTeams().filter((t) => remaining(t).length > 0);
+  if (teams.length < 2) { state.next = null; renderLobby(); return; }
+  // 대결을 적게 한 팀 우선, 같으면 무작위
   const pool = shuffle(teams).sort((a, b) => a.played - b.played);
   const pair = shuffle([pool[0], pool[1]]);
-  // 다시 뽑기 시 이전 사람은 대기열에 되돌린다
-  if (state.next) state.next.sides.forEach((s) => s.team.queue.unshift(s.member));
-  state.next = { sides: pair.map((team) => ({ team, member: pickMember(team) })) };
+  let sides = null;
+  // 다시 뽑기라면 가능한 한 직전과 다른 조합이 나오게 몇 번 시도
+  for (let k = 0; k < 10; k++) {
+    sides = pair.map((team) => ({ team, member: pickRandom(remaining(team)) }));
+    const same = prev && sides.every((sd) => prev.sides.some((p) => p.team === sd.team && p.member === sd.member));
+    if (!same) break;
+  }
+  state.next = { sides };
   renderLobby(true);
 }
 function renderLobby(roll = false) {
   const sb = $('scoreboard');
   sb.innerHTML = activeTeams()
     .slice().sort((a, b) => b.score - a.score)
-    .map((t) => `<div class="team-score" style="background:${t.color}"><span>${esc(t.name)}</span><b>${t.score}점</b></div>`).join('');
+    .map((t) => `<div class="team-score" style="background:${t.color}"><span>${esc(t.name)}<small>남은 선수 ${remaining(t).length}명</small></span><b>${t.score}점</b></div>`).join('');
   $('history').innerHTML = state.history.slice(0, 8).map((h) => `<li>${esc(h)}</li>`).join('') || '<li>아직 대결이 없어요</li>';
   const n = state.next;
-  if (!n) return;
   const v = $('versus');
+  $('fightBtn').disabled = !n;
+  $('drawBtn').disabled = !n;
+  if (!n) {
+    v.innerHTML = `<div style="grid-column:1/-1;font-size:24px;padding:20px 0">🎉 모든 선수가 대결을 마쳤어요!<br><small style="color:var(--muted)">점수 초기화를 누르면 처음부터 다시 뽑아요</small></div>`;
+    return;
+  }
   v.innerHTML = n.sides.map((s, i) => `<div class="who" style="background:${s.team.color};box-shadow:0 0 0 4px ${SIDE_COLORS[i]}">
       <div class="team">${i === 0 ? '⬅ 왼쪽' : '오른쪽 ➡'} · ${esc(s.team.name)}</div>
       <div class="name">${esc(s.member)}</div></div>`).join('<div class="vs">VS</div>');
@@ -311,7 +326,7 @@ function finishMatch(outs, timeUp) {
   if (timeUp && winner === -1 && !outs[0] && !outs[1]) reason = '시간 종료! 완전 막상막하예요';
 
   const sides = m.sides;
-  sides.forEach((sd) => sd.team.played++);
+  sides.forEach((sd) => { sd.team.played++; if (!sd.team.done.includes(sd.member)) sd.team.done.push(sd.member); });
   if (winner >= 0) sides[winner].team.score++;
   const label = (i) => `${sides[i].member}(${sides[i].team.name})`;
   state.history.unshift(winner >= 0 ? `🏆 ${label(winner)} 승 vs ${label(1 - winner)}` : `🤝 ${label(0)} vs ${label(1)} 무승부`);
@@ -478,10 +493,10 @@ function bind() {
   $('nextBtn').addEventListener('click', () => { state.match = null; drawNext(); show('lobby'); });
   $('settingsBtn').addEventListener('click', () => { renderSetup(); show('setup'); });
   $('resetScoreBtn').addEventListener('click', () => {
-    if (!confirm('모든 팀 점수와 기록을 0으로 만들까요?')) return;
-    state.teams.forEach((t) => { t.score = 0; t.played = 0; });
+    if (!confirm('모든 팀 점수와 기록을 지우고, 모든 선수를 다시 뽑을 수 있게 할까요?')) return;
+    state.teams.forEach((t) => { t.score = 0; t.played = 0; t.done = []; });
     state.history = [];
-    save(); renderLobby();
+    save(); drawNext();
   });
   window.addEventListener('keydown', (e) => {
     if (e.target.matches('input, textarea, select')) return;
