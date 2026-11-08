@@ -26,5 +26,11 @@ export const sfx = {
   beat: () => tone(110, 0.12, 'sine', 0.28),
   freeze: () => { tone(1568, 0.12, 'square', 0.12); tone(1175, 0.12, 'square', 0.12, 0.1); tone(784, 0.3, 'square', 0.12, 0.2); },
   bonus: () => { tone(988, 0.1, 'triangle', 0.16); tone(1319, 0.2, 'triangle', 0.16, 0.08); },
+  pop: () => { tone(880, 0.07, 'triangle', 0.2); tone(1480, 0.08, 'sine', 0.12, 0.03); },
+  boom: () => { tone(90, 0.4, 'sawtooth', 0.2); tone(60, 0.5, 'square', 0.1, 0.05); },
+  save: () => { tone(660, 0.08, 'triangle', 0.18); tone(990, 0.16, 'triangle', 0.18, 0.07); },
+  kick: () => tone(180, 0.08, 'square', 0.1),
+  step: () => tone(320, 0.05, 'square', 0.06),
+  pass: () => { tone(784, 0.1, 'triangle', 0.16); tone(1046, 0.16, 'triangle', 0.16, 0.08); },
   win: () => [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.25, 'triangle', 0.2, i * 0.14)),
 };

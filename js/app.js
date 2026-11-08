@@ -5,6 +5,7 @@ import { CameraTracker, listCameras } from './tracker.js';
 import { SimTracker } from './sim.js';
 import { sfx } from './sound.js';
 import { DANCES, danceAt } from './dances.js';
+import { ARCADE_INFO, isArcade, createArcade } from './arcade.js';
 
 const $ = (id) => document.getElementById(id);
 const TEAM_PRESETS = [
@@ -88,7 +89,7 @@ function show(screen) {
 function renderSetup() {
   const s = state.settings;
   for (const k of ['mode', 'teamCount', 'lives', 'roundSec', 'rounds', 'poseSec', 'difficulty', 'model']) $(k).value = String(s[k]);
-  $('poseSecLabel').classList.toggle('hidden', s.mode === 'dance');
+  $('poseSecLabel').classList.toggle('hidden', s.mode !== 'hold');
   const box = $('teams');
   box.innerHTML = '';
   activeTeams().forEach((t, i) => {
@@ -154,7 +155,11 @@ async function startApp(sim) {
   try {
     if (sim) {
       const t = new SimTracker();
-      t.getPose = () => (state.match && state.match.phase !== 'done' ? state.match.pose : null);
+      t.getPose = () => {
+        const m = state.match;
+        if (!m || m.phase === 'done') return null;
+        return m.arcade ? m.arcade.simPose(m.elapsed || 0) : m.pose;
+      };
       state.tracker = t;
     } else {
       msg.style.color = 'var(--muted)';
@@ -285,7 +290,7 @@ function renderLobby(roll = false) {
       v.innerHTML = `<div class="stage-msg">
         ${tie ? '🤝 공동 우승!' : `🏆 우승 팀<div class="champ" style="background:${best.color}">${esc(best.name)}<small>${best.score}승</small></div>`}
         <div class="awards${state.settings.rounds > 1 ? '' : ' one'}">
-          <div><b>🕺 댄스왕 (${state.settings.rounds > 1 ? '점수 합계' : '점수 순위'})</b>${st.top.map((p, i) => `<span>${['🥇', '🥈', '🥉'][i]} ${esc(p.member)} <em>${esc(p.team.name)} · ${p.r.points}점</em></span>`).join('')}</div>
+          <div><b>${state.settings.mode === 'dance' ? '🕺 댄스왕' : '🏅 점수왕'} (${state.settings.rounds > 1 ? '점수 합계' : '점수 순위'})</b>${st.top.map((p, i) => `<span>${['🥇', '🥈', '🥉'][i]} ${esc(p.member)} <em>${esc(p.team.name)} · ${p.r.points}점</em></span>`).join('')}</div>
           ${state.settings.rounds > 1 ? `<div><b>⭐ 전승</b>${st.perfect.length ? st.perfect.map((p) => `<span>${esc(p.member)} <em>${esc(p.team.name)}</em></span>`).join('') : '<span>없음</span>'}</div>` : ''}
         </div>
         <small>점수 초기화를 누르면 처음부터 다시 시작해요</small></div>`;
@@ -314,7 +319,9 @@ function startMatch() {
   const s = state.settings;
   const segs = Math.ceil(s.roundSec / s.poseSec);
   const dance = s.mode === 'dance' ? DANCES[Math.floor(Math.random() * DANCES.length)] : null;
+  const arcade = isArcade(s.mode) ? createArcade(s.mode, { lives: s.lives, diff: DIFFICULTY[s.difficulty] }) : null;
   state.match = {
+    arcade,
     mode: s.mode,
     dance,
     clock: 0,          // 춤 시계 (얼음 동안은 멈춤)
@@ -335,19 +342,34 @@ function startMatch() {
     lastCount: null,
     elapsed: 0,
   };
-  state.match.pose = dance ? danceAt(dance, 0).pose : state.match.poses[0];
+  state.match.pose = arcade ? null : dance ? danceAt(dance, 0).pose : state.match.poses[0];
   $('hud').classList.toggle('dance', !!dance);
+  $('hud').classList.toggle('arcade', !!arcade);
+  $('hud').classList.toggle('race', s.mode === 'race');
   $('hud').classList.remove('frozen');
+  const gc = $('ghost');
+  const [gw, gh] = s.mode === 'race' ? [720, 200] : [360, 400];
+  if (gc.width !== gw || gc.height !== gh) { gc.width = gw; gc.height = gh; }
   buildPanels();
-  if (dance) setDanceCard(); else setPoseCard(state.match.pose);
+  if (arcade) setArcadeCard(); else if (dance) setDanceCard(); else setPoseCard(state.match.pose);
   show('play');
 }
 
 function buildPanels() {
+  const A = state.match.arcade;
   state.match.sides.forEach((side, i) => {
     const el = $(`panel${i}`);
     el.style.borderColor = SIDE_COLORS[i];
     el.classList.remove('out');
+    el.classList.toggle('simple', !!A);
+    if (A) {
+      el.innerHTML = `<div class="pcol">
+          <div class="who"><span class="pname">${esc(side.member)}</span><span class="pteam" style="color:${side.team.color}">● ${esc(side.team.name)}</span><span class="pscore"></span></div>
+          <div class="hearts${A.usesLives ? '' : ' hidden'}"></div>
+          <div class="status"></div>
+        </div>`;
+      return;
+    }
     el.innerHTML = `<div class="pcol">
         <div class="who"><span class="pname">${esc(side.member)}</span><span class="pteam" style="color:${side.team.color}">● ${esc(side.team.name)}</span><span class="pscore"></span></div>
         <div class="hearts"></div>
@@ -400,6 +422,7 @@ function setPoseCard(pose) {
 }
 
 function tickMatch(now, dt, people) {
+  if (state.match.arcade) { tickArcade(now, dt, people); return; }
   const m = state.match, s = state.settings, diff = DIFFICULTY[s.difficulty];
   const since = (now - m.t0) / 1000;
 
@@ -525,13 +548,82 @@ function tickDance(t, dt, people) {
   if (outs[0] || outs[1] || t >= s.roundSec) finishMatch(outs, t >= s.roundSec);
 }
 
+// ---------------- 활동형 미니게임 (풍선·벽·달리기·골키퍼) ----------------
+function setArcadeCard() {
+  const info = ARCADE_INFO[state.settings.mode] || ARCADE_INFO[Object.keys(ARCADE_INFO)[0]];
+  $('poseEmoji').textContent = info.emoji;
+  $('poseName').textContent = info.name;
+  $('poseHint').textContent = info.hint;
+}
+
+function updateArcadePanels() {
+  const A = state.match.arcade;
+  A.players.forEach((p, i) => {
+    const el = $(`panel${i}`);
+    el.querySelector('.hearts').innerHTML = Array.from({ length: p.lives > 0 || A.usesLives ? state.settings.lives : 0 }, (_, k) => `<span class="${k < p.lives ? '' : 'lost'}">❤️</span>`).join('');
+    el.querySelector('.pscore').textContent = A.scoreText(i);
+    const st = A.status(i) || ['ok', '좋아요! 계속! 💪'];
+    const s = el.querySelector('.status');
+    s.className = `status ${st[0]}`;
+    s.textContent = st[1];
+  });
+}
+
+function arcadeHit(i, text) {
+  sfx.hit();
+  const el = $(`panel${i}`);
+  el.classList.remove('hit'); void el.offsetWidth; el.classList.add('hit');
+  big(`💔 ${state.match.sides[i].member}: ${text}`, 1200, '6vh');
+}
+
+function tickArcade(now, dt, people) {
+  const m = state.match, s = state.settings, A = m.arcade;
+  const W = state.tracker.width, H = state.tracker.height;
+  const since = (now - m.t0) / 1000;
+  if (m.phase === 'countdown') {
+    const left = Math.ceil(COUNTDOWN - since);
+    if (left !== m.lastCount) {
+      m.lastCount = left;
+      if (left > 0) { big(String(left)); sfx.tick(); } else { big('시작!'); sfx.go(); }
+    }
+    A.tick(0, dt, people, W, H, false);
+    $('roundTime').textContent = s.roundSec;
+    $('poseBar').style.width = '0%';
+    $('posePhase').textContent = '곧 시작해요! 화면에 몸이 다 보이게 서요';
+    if (s.mode === 'race') A.drawCard($('ghost'), m.sides);
+    updateArcadePanels();
+    if (since >= COUNTDOWN) { m.phase = 'play'; m.tPlay = now; setTimeout(hideBig, 700); }
+    return;
+  }
+  if (m.phase !== 'play') return;
+  const t = (now - m.tPlay) / 1000;
+  m.elapsed = t;
+  A.tick(t, dt, people, W, H, true);
+  for (const e of A.events.splice(0)) if (e.kind === 'hit') arcadeHit(e.i, e.text);
+  $('roundTime').textContent = Math.max(0, Math.ceil(s.roundSec - t));
+  $('poseBar').style.width = `${Math.min(100, (t / s.roundSec) * 100)}%`;
+  $('posePhase').textContent = A.phaseText();
+  if (s.mode === 'race') A.drawCard($('ghost'), m.sides);
+  updateArcadePanels();
+  const outs = A.outs();
+  outs.forEach((o, i) => $(`panel${i}`).classList.toggle('out', o));
+  if (outs[0] || outs[1] || A.winnerEarly() >= 0 || t >= s.roundSec) finishMatch(outs, t >= s.roundSec);
+}
+
 function finishMatch(outs, timeUp) {
   const m = state.match;
   m.phase = 'done';
   const [a, b] = m.judges;
+  const A = m.arcade;
   let winner = -1, reason = '';
-  if (outs[0] && outs[1]) { winner = -1; reason = '둘 다 동시에 생명을 모두 잃었어요'; }
+  if (A && A.winnerEarly() >= 0) { winner = A.winnerEarly(); reason = '먼저 결승선에 들어왔어요! 🏁'; }
+  else if (outs[0] && outs[1]) { winner = -1; reason = '둘 다 동시에 생명을 모두 잃었어요'; }
   else if (outs[0] || outs[1]) { winner = outs[0] ? 1 : 0; reason = '상대가 생명을 모두 잃었어요'; }
+  else if (A) {
+    const sa = Math.floor(A.players[0].score), sb = Math.floor(A.players[1].score);
+    if (sa !== sb) { winner = sa > sb ? 0 : 1; reason = `시간 종료! ${m.mode === 'race' ? '더 많이 달렸어요' : m.mode === 'goalie' ? '더 많이 막았어요' : m.mode === 'wall' ? '벽을 더 많이 통과했어요' : '점수가 더 높아요'}`; }
+    else { winner = -1; reason = '시간 종료! 완전 막상막하예요'; }
+  }
   else if (m.mode === 'dance') {
     const sa = Math.floor(a.score), sb = Math.floor(b.score);
     if (sa !== sb) { winner = sa > sb ? 0 : 1; reason = '시간 종료! 점수가 더 높아요'; }
@@ -540,11 +632,12 @@ function finishMatch(outs, timeUp) {
   else if (a.lives !== b.lives) { winner = a.lives > b.lives ? 0 : 1; reason = '시간 종료! 남은 생명이 더 많아요'; }
   else if (Math.abs(a.okTime - b.okTime) >= 0.5) { winner = a.okTime > b.okTime ? 0 : 1; reason = '시간 종료! 생명이 같아서 바른 자세로 버틴 시간으로 판정'; }
   else { winner = -1; reason = '시간 종료! 완전 막상막하예요'; }
-  if (m.mode !== 'dance' && timeUp && winner === -1 && !outs[0] && !outs[1]) reason = '시간 종료! 완전 막상막하예요';
+  if (!A && m.mode !== 'dance' && timeUp && winner === -1 && !outs[0] && !outs[1]) reason = '시간 종료! 완전 막상막하예요';
 
   const sides = m.sides;
   // 한쪽이 끝까지 한 번도 안 나왔으면 연습 경기: 기록·팀 점수 없이 같은 대결을 다시 대기
-  const empty = m.judges.map((j) => !j.everSeen);
+  const empty = A ? A.players.map((p) => !p.everSeen) : m.judges.map((j) => !j.everSeen);
+  const arcadeCol = (i) => `<div class="big">${A.scoreText(i)}</div>${A.usesLives ? `<div>남은 생명 ${'❤️'.repeat(A.players[i].lives) || '없음'}</div>` : ''}<div>${A.detail(i)}</div>`;
   if (empty[0] || empty[1]) {
     state.next = { sides, round: m.round };
     setTimeout(() => {
@@ -554,7 +647,7 @@ function finishMatch(outs, timeUp) {
           const j = m.judges[i];
           return `<div class="rcol" style="background:${sd.team.color};${empty[i] ? 'opacity:.5' : ''}">
             <div class="big">${esc(sd.member)}</div><div>${esc(sd.team.name)}</div>
-            ${empty[i] ? '<div>빈 자리</div>' : m.mode === 'dance'
+            ${empty[i] ? '<div>빈 자리</div>' : A ? arcadeCol(i) : m.mode === 'dance'
               ? `<div class="big">${Math.floor(j.score)}점</div><div>남은 생명 ${'❤️'.repeat(j.lives) || '없음'} · 얼음 성공 ${j.freezeOK}번</div>`
               : `<div>남은 생명 ${'❤️'.repeat(j.lives) || '없음'}</div><div>바른 자세 ${j.okTime.toFixed(1)}초</div>`}</div>`;
         }).join('');
@@ -571,7 +664,7 @@ function finishMatch(outs, timeUp) {
     const r = rec(sd.team, sd.member);
     const j = m.judges[i];
     r.games++;
-    r.points += Math.floor(m.mode === 'dance' ? j.score : j.okTime * 10);
+    r.points += Math.floor(A ? A.players[i].score * (m.mode === 'balloon' ? 1 : 10) : m.mode === 'dance' ? j.score : j.okTime * 10);
     if (winner === i) r.wins++;
   });
   // 팀 점수: 다른 팀끼리 대결에서 이긴 경우만 (도우미가 이기면 점수 없음)
@@ -592,8 +685,8 @@ function finishMatch(outs, timeUp) {
         const j = m.judges[i];
         return `<div class="rcol" style="background:${sd.team.color};${i === winner ? 'box-shadow:0 0 0 5px #ffd84d' : ''}">
           <div class="big">${esc(sd.member)}</div><div>${esc(sd.team.name)}</div>
-          <div>남은 생명 ${'❤️'.repeat(j.lives) || '없음'}</div>
-          ${m.mode === 'dance'
+          ${A ? arcadeCol(i) : `<div>남은 생명 ${'❤️'.repeat(j.lives) || '없음'}</div>`}
+          ${A ? '' : m.mode === 'dance'
             ? `<div class="big">${Math.floor(j.score)}점</div><div>얼음 성공 ${j.freezeOK}번 · 평균 일치 ${Math.round(j.avgMatch * 100)}%</div>`
             : `<div>바른 자세 ${j.okTime.toFixed(1)}초 · 평균 일치 ${Math.round(j.avgMatch * 100)}%</div>`}
           ${i === winner ? `<div class="big">${teamPoint ? '팀 +1점' : '승리!'}</div>` : ''}
@@ -792,14 +885,17 @@ function frame(now) {
   const m = state.match;
   if (state.screen === 'play' && m) tickMatch(now, dt, people);
 
+  const A = state.screen === 'play' && m ? m.arcade : null;
   people.forEach((lms, i) => {
     if (!lms) return;
+    if (A) { if (!A.ownSkeleton) drawSkeleton(lms, SIDE_COLORS[i], W, H, null); return; }
     const j = m && state.screen === 'play' ? m.judges[i] : null;
     const alert = j && j.status === 'wobble' && m.phase === 'play';
     const okThr = DIFFICULTY[state.settings.difficulty].match;
     const anchor = drawSkeleton(lms, SIDE_COLORS[i], W, H, j && j.lives > 0 ? j : null, okThr, alert);
     if (j && m.pose && j.lives > 0) drawGhostOverlay(m.pose, anchor);
   });
+  if (A) A.draw(ctx, W, H);
 
   if (state.screen === 'lobby') {
     people.forEach((p, i) => {
@@ -813,7 +909,7 @@ function frame(now) {
 // ---------------- 이벤트 ----------------
 function bind() {
   $('teamCount').addEventListener('change', () => { readSetup(); renderSetup(); });
-  $('mode').addEventListener('change', () => $('poseSecLabel').classList.toggle('hidden', $('mode').value === 'dance'));
+  $('mode').addEventListener('change', () => $('poseSecLabel').classList.toggle('hidden', $('mode').value !== 'hold'));
   $('startBtn').addEventListener('click', () => startApp(false));
   $('simBtn').addEventListener('click', () => startApp(true));
   $('drawBtn').addEventListener('click', drawNext);

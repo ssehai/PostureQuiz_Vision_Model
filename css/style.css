@@ -159,3 +159,19 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .stage-msg .awards span { display: block; }
 .stage-msg .awards em { font-style: normal; color: var(--muted); font-size: 14px; }
 .stage-msg .awards.one { grid-template-columns: 1fr; max-width: 320px; margin-left: auto; margin-right: auto; }
+
+/* ---------- 활동형 미니게임 ---------- */
+#hud.arcade .pose-card { padding: 10px 20px; }
+#hud.arcade #ghost { display: none; }
+#hud.arcade .pose-name { font-size: 32px; }
+#hud.arcade .pose-hint { font-size: 17px; }
+#hud.race .pose-card { flex-direction: column; gap: 6px; text-align: center; }
+#hud.race #ghost { display: block; width: min(36vw, 420px); height: auto; aspect-ratio: 720 / 200; }
+#hud.race .pose-card { padding: 8px 12px; gap: 4px; }
+#hud.race .pose-hint, #hud.race .pose-name { display: none; }
+#hud.race .pose-phase { font-size: 15px; margin-top: 2px; }
+#hud.race .bar { min-width: 0; width: 100%; }
+.player-panel.simple { grid-template-columns: 1fr; }
+.status.great, .status.ok { color: var(--good); }
+.status.follow { color: var(--warn); }
+.status.empty { color: #aab; }

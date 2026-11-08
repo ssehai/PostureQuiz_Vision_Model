@@ -41,7 +41,7 @@ export class SimTracker {
         const n = () => (Math.random() - 0.5) * 0.004;
         out[k] = {
           x: pl.cx + (p.x * scale) / aspect + sway * (1 + p.y * -0.5) / aspect + n(),
-          y: 0.56 + p.y * scale + n(),
+          y: 0.56 + (p.y + (pl.pose.dy || 0)) * scale + n(),
           visibility: 0.99,
         };
       }
