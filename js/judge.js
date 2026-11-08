@@ -15,13 +15,16 @@ const WINDOW = 0.8;         // 흔들림을 재는 시간 창(초)
 const MISSING_LIMIT = 0.35; // 이 시간(초) 이상 안 보이면 '안 보임' 처리
 const INVINCIBLE = 1.6;     // 생명 잃은 뒤 무적 시간(초)
 
-// 큰 관절이 전부 화면 안에 보이는지
+// 몸통과 다리가 화면 안에 보이는지.
+// 팔(팔꿈치·손목)과 머리는 검사하지 않는다: 만세처럼 손을 높이 들면 손이 화면 위로
+// 잘리기 쉬운데, 그때도 AI는 손 위치를 추정해 주므로 판정에는 문제가 없다.
+const BODY_CORE = [LM.lShoulder, LM.rShoulder, LM.lHip, LM.rHip, LM.lKnee, LM.rKnee, LM.lAnkle, LM.rAnkle];
 export function isFullBody(lms) {
-  for (const i of [LM.nose, ...JOINTS]) {
+  for (const i of BODY_CORE) {
     const p = lms[i];
     if (!p) return false;
-    if (p.visibility != null && p.visibility < 0.3) return false;
-    if (p.x < -0.03 || p.x > 1.03 || p.y < -0.03 || p.y > 1.03) return false;
+    if (p.visibility != null && p.visibility < 0.2) return false;
+    if (p.x < -0.05 || p.x > 1.05 || p.y < -0.05 || p.y > 1.08) return false;
   }
   return true;
 }
@@ -160,6 +163,7 @@ export class PlayerJudge {
     if (this.danger >= 1) {
       this.danger = 0;
       this.lives = Math.max(0, this.lives - 1);
+      this.hitReason = this.status; // 무엇 때문에 생명을 잃었는지 (화면에 표시)
       this.invincible = INVINCIBLE;
       this.lastHit = now;
       return true;

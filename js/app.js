@@ -362,7 +362,7 @@ function buildPanels() {
 }
 
 const STATUS_TEXT = {
-  ok: '좋아요! 그대로! 🧊', wobble: '흔들려요! 😵', pose: '자세를 맞춰요! 👀', missing: '온몸이 보이게! 🙈', wait: '',
+  ok: '좋아요! 그대로! 🧊', wobble: '흔들려요! 😵', pose: '자세를 맞춰요! 👀', missing: '다리까지 보이게! 🙈', wait: '',
   great: '완벽해요! 🔥', good: '좋아요! 👍', follow: '춤을 따라 춰요! 💃',
 };
 
@@ -437,11 +437,7 @@ function tickMatch(now, dt, people) {
   m.judges.forEach((j, i) => {
     if (j.lives <= 0) return;
     j.observe(people[i], dt, aspect());
-    if (j.step(dt, m.pose, diff, judging, t)) {
-      sfx.hit();
-      const el = $(`panel${i}`);
-      el.classList.remove('hit'); void el.offsetWidth; el.classList.add('hit');
-    }
+    if (j.step(dt, m.pose, diff, judging, t)) hitFx(i);
   });
 
   $('roundTime').textContent = Math.max(0, Math.ceil(s.roundSec - t));
@@ -467,6 +463,9 @@ function hitFx(i) {
   sfx.hit();
   const el = $(`panel${i}`);
   el.classList.remove('hit'); void el.offsetWidth; el.classList.add('hit');
+  const j = state.match && state.match.judges[i];
+  const why = j && HIT_TEXT[j.hitReason];
+  if (why) big(`💔 ${state.match.sides[i].member}: ${why}`, 1200, '6vh');
 }
 
 function tickDance(t, dt, people) {
@@ -631,6 +630,14 @@ const BONE_ANGLE = {
   [`${LM.rHip}-${LM.rKnee}`]: 'rHip', [`${LM.rKnee}-${LM.rAnkle}`]: 'rKnee',
 };
 const GOOD = '#2fdc7a', BAD = '#ff4d5e';
+// 생명이 깎이거나 점수가 안 오르는 상태 → 빨간 테두리 + 머리 위 이유 표시
+const BAD_REASON = {
+  missing: '다리까지 화면에 보이게!',
+  wobble: '흔들려요!',
+  pose: '자세가 달라요',
+  follow: '자세가 달라요',
+};
+const HIT_TEXT = { missing: '다리가 화면 밖으로 나갔어요', wobble: '흔들렸어요', pose: '자세가 달랐어요' };
 
 // judge가 있으면(대결 중) 몸 주변에 초록(자세 맞음)/빨강(틀림) 테두리를 두르고,
 // 팔다리 마디도 하나씩 초록/빨강으로 칠해 어느 부위가 틀렸는지 보여준다
@@ -646,7 +653,8 @@ function drawSkeleton(lms, color, W, H, judge, okThr, alert) {
   ctx.lineCap = 'round';
 
   const showFit = judge && judge.visible;
-  const ok = showFit && !alert && judge.match >= okThr;
+  const reason = showFit ? (BAD_REASON[judge.status] || (judge.match < okThr ? '자세가 달라요' : null)) : null;
+  const ok = showFit && !alert && !reason;
   if (showFit) {
     // 몸 둘레 테두리 (두꺼운 반투명 선 + 빛 번짐)
     ctx.save();
@@ -677,6 +685,21 @@ function drawSkeleton(lms, color, W, H, judge, okThr, alert) {
   }
   ctx.beginPath(); ctx.arc(n.x, n.y, headR, 0, Math.PI * 2);
   ctx.lineWidth = lw * 0.8; ctx.strokeStyle = color; ctx.stroke();
+
+  // 빨간 상태면 머리 위에 이유를 띄운다
+  if (showFit && !ok) {
+    const text = alert ? BAD_REASON.wobble : reason;
+    const fs = Math.max(18, Math.min(40, torso * 0.2));
+    ctx.save();
+    ctx.font = `${fs}px Jua, sans-serif`;
+    const tw = ctx.measureText(text).width;
+    const bx = n.x - tw / 2 - fs * 0.5, by = Math.max(4, n.y - headR - fs * 2.1);
+    ctx.fillStyle = 'rgba(255,77,94,0.92)';
+    ctx.beginPath(); ctx.roundRect(bx, by, tw + fs, fs * 1.5, fs * 0.4); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(text, n.x, by + fs * 0.78);
+    ctx.restore();
+  }
   return { hp, torso };
 }
 
