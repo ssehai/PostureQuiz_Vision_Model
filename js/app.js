@@ -27,7 +27,7 @@ const rand = (a, b) => a + Math.random() * (b - a);
 
 // ---------------- 상태 ----------------
 const state = {
-  settings: { teamCount: 2, lives: 3, roundSec: 45, rounds: 2, poseSec: 15, difficulty: 'normal', model: 'lite', cameraId: '', mode: 'dance' },
+  settings: { teamCount: 2, lives: 3, roundSec: 45, rounds: 1, poseSec: 15, difficulty: 'normal', model: 'lite', cameraId: '', mode: 'dance' },
   teams: TEAM_PRESETS.map((t) => ({ ...t, membersText: '', score: 0, played: 0, done: [] })),
   history: [],
   // 대회: 라운드마다 모든 학생이 정확히 한 번씩 대결 (스위스 방식)
@@ -284,9 +284,9 @@ function renderLobby(roll = false) {
       const tie = st.teams[1] && st.teams[1].score === best.score;
       v.innerHTML = `<div class="stage-msg">
         ${tie ? '🤝 공동 우승!' : `🏆 우승 팀<div class="champ" style="background:${best.color}">${esc(best.name)}<small>${best.score}승</small></div>`}
-        <div class="awards">
-          <div><b>🕺 댄스왕 (점수 합계)</b>${st.top.map((p, i) => `<span>${['🥇', '🥈', '🥉'][i]} ${esc(p.member)} <em>${esc(p.team.name)} · ${p.r.points}점</em></span>`).join('')}</div>
-          <div><b>⭐ 전승</b>${st.perfect.length ? st.perfect.map((p) => `<span>${esc(p.member)} <em>${esc(p.team.name)}</em></span>`).join('') : '<span>없음</span>'}</div>
+        <div class="awards${state.settings.rounds > 1 ? '' : ' one'}">
+          <div><b>🕺 댄스왕 (${state.settings.rounds > 1 ? '점수 합계' : '점수 순위'})</b>${st.top.map((p, i) => `<span>${['🥇', '🥈', '🥉'][i]} ${esc(p.member)} <em>${esc(p.team.name)} · ${p.r.points}점</em></span>`).join('')}</div>
+          ${state.settings.rounds > 1 ? `<div><b>⭐ 전승</b>${st.perfect.length ? st.perfect.map((p) => `<span>${esc(p.member)} <em>${esc(p.team.name)}</em></span>`).join('') : '<span>없음</span>'}</div>` : ''}
         </div>
         <small>점수 초기화를 누르면 처음부터 다시 시작해요</small></div>`;
     }
