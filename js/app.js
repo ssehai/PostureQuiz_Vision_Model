@@ -702,7 +702,7 @@ const MODE_INFO = {
 function gamePoints(m, i) {
   const A = m.arcade, j = m.judges[i];
   const raw = A
-    ? ({ balloon: 0.25, wall: 6, race: 1.25, goalie: 4 }[m.mode]) * A.players[i].score
+    ? ({ balloon: 0.25, wall: 6, race: 1, goalie: 4 }[m.mode]) * A.players[i].score
     : m.mode === 'dance' ? j.score / 5 : (j.okTime / state.settings.roundSec) * 100;
   return Math.round(Math.max(0, Math.min(100, raw)));
 }
