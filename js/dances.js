@@ -29,17 +29,17 @@ for (const k in M) makePose(M[k]);
 
 export const DANCES = [
   {
-    id: 'gym', name: '신나는 체조', beat: 0.9,
+    id: 'gym', name: '신나는 체조', beat: 1.3,
     moves: ['rest', 'tee', 'up', 'tee', 'cactus', 'robot', 'cactus', 'robot',
       'star', 'rest', 'lUp', 'rUp', 'lUp', 'rUp', 'hips', 'up'],
   },
   {
-    id: 'disco', name: '디스코 파티', beat: 0.8,
+    id: 'disco', name: '디스코 파티', beat: 1.2,
     moves: ['discoL', 'discoR', 'discoL', 'discoR', 'squat', 'star', 'squat', 'star',
       'stepL', 'stepR', 'stepL', 'stepR', 'kneeL', 'tee', 'kneeR', 'tee'],
   },
   {
-    id: 'hero', name: '슈퍼 히어로', beat: 1.0,
+    id: 'hero', name: '슈퍼 히어로', beat: 1.4,
     moves: ['hips', 'up', 'hips', 'bow', 'tee', 'squat', 'tee', 'squat',
       'kneeL', 'cactus', 'kneeR', 'cactus', 'discoL', 'discoR', 'star', 'rest'],
   },

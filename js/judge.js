@@ -1,11 +1,13 @@
 // 한 선수의 판정 상태: 좌표 스무딩, 흔들림 측정, 자세 일치도, 위험 게이지, 생명
-import { LM, JOINTS, computeAngles, poseSimilarity } from './poses.js';
+import { LM, JOINTS, computeAngles, poseDetail } from './poses.js';
 
 // 난이도별 기준값
 export const DIFFICULTY = {
-  easy:   { label: '쉬움',   wobble: 0.13,  match: 0.62 },
-  normal: { label: '보통',   wobble: 0.09,  match: 0.7 },
-  hard:   { label: '어려움', wobble: 0.065, match: 0.78 },
+// tol: 관절 각도가 이만큼(도) 틀려도 만점, falloff: 거기서 이만큼 더 틀리면 0점
+// (실제 카메라는 각도가 흔들리고 아이들 동작도 크게 달라서 넉넉하게 잡음)
+  easy:   { label: '쉬움',   wobble: 0.13,  match: 0.6,  tol: 32, falloff: 50 },
+  normal: { label: '보통',   wobble: 0.09,  match: 0.65, tol: 27, falloff: 45 },
+  hard:   { label: '어려움', wobble: 0.065, match: 0.75, tol: 20, falloff: 40 },
 };
 
 const SMOOTH = 0.45;        // 좌표 EMA 계수 (작을수록 부드럽게)
@@ -52,14 +54,20 @@ export class PlayerJudge {
   // 댄스 모드의 춤추는 구간. poses = 최근 0.7초 동안 화면에 나온 춤 자세들.
   // 사람은 화면을 보고 따라 하느라 조금 늦으므로, 그중 가장 비슷한 자세로 채점한다.
   // 반환값: 이번 프레임 춤 품질 0~1
-  danceStep(dt, poses) {
+  danceStep(dt, poses, diff) {
     this.invincible = Math.max(0, this.invincible - dt);
     this.danger = Math.max(0, this.danger - dt * 0.8);
-    let best = 0;
-    if (this.visible && this.angles) for (const p of poses) best = Math.max(best, poseSimilarity(this.angles, p));
+    let best = 0, parts = null;
+    if (this.visible && this.angles) {
+      for (const p of poses) {
+        const d = poseDetail(this.angles, p, diff.tol, diff.falloff);
+        if (d.score >= best) { best = d.score; parts = d.parts; }
+      }
+    }
     this.match = best;
+    this.parts = parts;
     const seen = this.visible && this.fullBody;
-    this.status = !seen ? 'missing' : best >= 0.8 ? 'great' : best >= 0.6 ? 'good' : 'follow';
+    this.status = !seen ? 'missing' : best >= Math.max(0.85, diff.match + 0.15) ? 'great' : best >= diff.match ? 'good' : 'follow';
     const q = seen ? Math.max(0, Math.min(1, (best - 0.4) / 0.45)) : 0;
     this.score += dt * 10 * q;
     this.matchSum += best; this.matchN++;
@@ -121,7 +129,9 @@ export class PlayerJudge {
   // 판정 한 스텝. judging=false면 게이지만 서서히 줄어든다(자세 바꾸는 준비 시간).
   // 반환값: 이번 스텝에 생명을 잃었으면 true
   step(dt, pose, diff, judging, now) {
-    this.match = this.visible && this.angles && pose ? poseSimilarity(this.angles, pose) : 0;
+    const d = this.visible && this.angles && pose ? poseDetail(this.angles, pose, diff.tol, diff.falloff) : null;
+    this.match = d ? d.score : 0;
+    this.parts = d ? d.parts : null;
     this.invincible = Math.max(0, this.invincible - dt);
 
     let rate = 0;

@@ -142,22 +142,29 @@ export function lerpPose(a, b, k) {
 
 for (const p of POSES) makePose(p);
 
-// 유사도 0~1. 관절별 오차가 tol 이내면 만점, tol+falloff에서 0점.
+// 유사도 0~1 (poseDetail은 관절별 점수 parts도 함께 반환). 관절별 오차가 tol 이내면 만점, tol+falloff에서 0점.
 // 평균만 쓰면 한두 관절이 크게 틀려도 통과하므로, 가장 많이 틀린 2개 관절 점수를 섞는다.
 // 좌우 반전(거울) 자세도 정답으로 인정하고 둘 중 높은 점수를 쓴다.
-export function poseSimilarity(angles, pose, tol = 20, falloff = 40) {
+export function poseDetail(angles, pose, tol = 20, falloff = 40) {
   const score = (target) => {
-    const parts = [];
+    const parts = {};
+    const vals = [];
     for (const k in target) {
       if (angles[k] == null) continue;
       const d = Math.abs(angles[k] - target[k]);
-      parts.push(Math.max(0, Math.min(1, 1 - (d - tol) / falloff)));
+      parts[k] = Math.max(0, Math.min(1, 1 - (d - tol) / falloff));
+      vals.push(parts[k]);
     }
-    if (!parts.length) return 0;
-    parts.sort((a, b) => a - b);
-    const mean = parts.reduce((a, b) => a + b, 0) / parts.length;
-    const worst = (parts[0] + (parts[1] ?? parts[0])) / 2;
-    return 0.6 * mean + 0.4 * worst;
+    if (!vals.length) return { score: 0, parts };
+    vals.sort((a, b) => a - b);
+    const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+    const worst = (vals[0] + (vals[1] ?? vals[0])) / 2;
+    return { score: 0.6 * mean + 0.4 * worst, parts };
   };
-  return Math.max(score(pose.target), score(pose.targetMirror));
+  const a = score(pose.target), b = score(pose.targetMirror);
+  return a.score >= b.score ? a : b;
+}
+
+export function poseSimilarity(angles, pose, tol = 20, falloff = 40) {
+  return poseDetail(angles, pose, tol, falloff).score;
 }

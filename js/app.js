@@ -22,7 +22,7 @@ const DANCE_MIN = 6, DANCE_MAX = 10; // 몇 초 춤춘 뒤 멈출지 (그 사이
 const FREEZE_GRACE = 1.5;            // 멈춘 직후 자세를 잡는 시간 (판정 안 함)
 const FREEZE_HOLD = 4;               // 얼음 버티기 판정 시간
 const FREEZE_BONUS = 30;             // 생명을 잃지 않고 버티면 받는 점수
-const FOLLOW_WINDOW = 0.7;           // 춤 채점 시 허용하는 따라 하기 지연(초)
+const FOLLOW_WINDOW = 1.2;           // 춤 채점 시 허용하는 따라 하기 지연(초)
 const rand = (a, b) => a + Math.random() * (b - a);
 
 // ---------------- 상태 ----------------
@@ -481,7 +481,7 @@ function tickDance(t, dt, people) {
     m.hist.push({ t, pose: st.pose });
     while (m.hist.length && t - m.hist[0].t > FOLLOW_WINDOW) m.hist.shift();
     const poses = m.hist.map((h) => h.pose);
-    m.judges.forEach((j) => { if (j.lives > 0) j.danceStep(dt, poses); });
+    m.judges.forEach((j) => { if (j.lives > 0) j.danceStep(dt, poses, diff); });
 
     // 예고 없이 멈추기: 정해 둔 시간이 지난 뒤, 알아보기 쉬운 동작에 도착한 순간
     if (m.clock >= m.nextFreezeAt && st.holding && st.move.freeze && s.roundSec - t > FREEZE_GRACE + 1) {
@@ -623,25 +623,60 @@ function assignSides(list) {
   return out;
 }
 
-function drawSkeleton(lms, color, W, H, alert) {
+// 팔다리 뼈 → 그 뼈의 방향을 결정하는 관절 각도
+const BONE_ANGLE = {
+  [`${LM.lShoulder}-${LM.lElbow}`]: 'lShoulder', [`${LM.lElbow}-${LM.lWrist}`]: 'lElbow',
+  [`${LM.rShoulder}-${LM.rElbow}`]: 'rShoulder', [`${LM.rElbow}-${LM.rWrist}`]: 'rElbow',
+  [`${LM.lHip}-${LM.lKnee}`]: 'lHip', [`${LM.lKnee}-${LM.lAnkle}`]: 'lKnee',
+  [`${LM.rHip}-${LM.rKnee}`]: 'rHip', [`${LM.rKnee}-${LM.rAnkle}`]: 'rKnee',
+};
+const GOOD = '#2fdc7a', BAD = '#ff4d5e';
+
+// judge가 있으면(대결 중) 몸 주변에 초록(자세 맞음)/빨강(틀림) 테두리를 두르고,
+// 팔다리 마디도 하나씩 초록/빨강으로 칠해 어느 부위가 틀렸는지 보여준다
+function drawSkeleton(lms, color, W, H, judge, okThr, alert) {
   const P = (i) => ({ x: lms[i].x * W, y: lms[i].y * H });
   const sh = { x: (lms[LM.lShoulder].x + lms[LM.rShoulder].x) / 2 * W, y: (lms[LM.lShoulder].y + lms[LM.rShoulder].y) / 2 * H };
   const hp = { x: (lms[LM.lHip].x + lms[LM.rHip].x) / 2 * W, y: (lms[LM.lHip].y + lms[LM.rHip].y) / 2 * H };
   const torso = Math.max(20, Math.hypot(sh.x - hp.x, sh.y - hp.y));
   const lw = Math.max(5, torso * 0.07);
+  const n = P(LM.nose);
+  const headR = torso * 0.24;
+  const line = (a, b) => { const p = P(a), q = P(b); ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(q.x, q.y); ctx.stroke(); };
   ctx.lineCap = 'round';
-  ctx.strokeStyle = 'rgba(0,0,0,0.45)'; ctx.lineWidth = lw + 6;
-  for (const [a, b] of BONES) { const p = P(a), q = P(b); ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(q.x, q.y); ctx.stroke(); }
-  ctx.strokeStyle = alert ? '#ff4d5e' : color; ctx.lineWidth = lw;
-  for (const [a, b] of BONES) { const p = P(a), q = P(b); ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(q.x, q.y); ctx.stroke(); }
+
+  const showFit = judge && judge.visible;
+  const ok = showFit && !alert && judge.match >= okThr;
+  if (showFit) {
+    // 몸 둘레 테두리 (두꺼운 반투명 선 + 빛 번짐)
+    ctx.save();
+    ctx.strokeStyle = ok ? GOOD : BAD;
+    ctx.globalAlpha = 0.55;
+    ctx.shadowColor = ok ? GOOD : BAD;
+    ctx.shadowBlur = lw * 3;
+    ctx.lineWidth = lw * 4.2;
+    for (const [a, b] of BONES) line(a, b);
+    ctx.beginPath(); ctx.arc(n.x, n.y, headR, 0, Math.PI * 2); ctx.stroke();
+    ctx.restore();
+  } else {
+    ctx.strokeStyle = 'rgba(0,0,0,0.45)'; ctx.lineWidth = lw + 6;
+    for (const [a, b] of BONES) line(a, b);
+  }
+
+  ctx.lineWidth = lw;
+  for (const [a, b] of BONES) {
+    const key = BONE_ANGLE[`${a}-${b}`];
+    const part = showFit && judge.parts && key ? judge.parts[key] : null;
+    ctx.strokeStyle = part == null ? color : part >= 0.5 ? GOOD : BAD;
+    line(a, b);
+  }
   for (const i of JOINTS) {
     const p = P(i);
     ctx.beginPath(); ctx.arc(p.x, p.y, lw * 0.95, 0, Math.PI * 2);
-    ctx.fillStyle = '#fff'; ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = alert ? '#ff4d5e' : color; ctx.stroke();
+    ctx.fillStyle = '#fff'; ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = color; ctx.stroke();
   }
-  const n = P(LM.nose);
-  ctx.beginPath(); ctx.arc(n.x, n.y, torso * 0.24, 0, Math.PI * 2);
-  ctx.lineWidth = lw * 0.8; ctx.strokeStyle = alert ? '#ff4d5e' : color; ctx.stroke();
+  ctx.beginPath(); ctx.arc(n.x, n.y, headR, 0, Math.PI * 2);
+  ctx.lineWidth = lw * 0.8; ctx.strokeStyle = color; ctx.stroke();
   return { hp, torso };
 }
 
@@ -707,8 +742,9 @@ function frame(now) {
   people.forEach((lms, i) => {
     if (!lms) return;
     const j = m && state.screen === 'play' ? m.judges[i] : null;
-    const alert = j && (j.status === 'wobble' || j.invincible > 0) && m.phase === 'play';
-    const anchor = drawSkeleton(lms, SIDE_COLORS[i], W, H, alert);
+    const alert = j && j.status === 'wobble' && m.phase === 'play';
+    const okThr = DIFFICULTY[state.settings.difficulty].match;
+    const anchor = drawSkeleton(lms, SIDE_COLORS[i], W, H, j && j.lives > 0 ? j : null, okThr, alert);
     if (j && m.pose && j.lives > 0) drawGhostOverlay(m.pose, anchor);
   });
 
