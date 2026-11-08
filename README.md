@@ -8,11 +8,11 @@
 
 ## 실행 방법
 
-카메라는 보안상 `file://`로는 열리지 않아서, 간단한 로컬 서버로 실행해야 해요.
+카메라는 보안상 `file://`로는 열리지 않아서, 간단한 로컬 서버로 실행해야 해요. `serve.py`는 `python3 -m http.server`와 같지만 브라우저 캐시를 끄기 때문에, 코드를 고친 뒤 새로고침해도 옛 파일과 섞이지 않아요.
 
 ```bash
 cd PostureQuiz_Vision_Model
-python3 -m http.server 8000
+python3 serve.py
 ```
 
 그다음 Chrome에서 <http://localhost:8000> 을 열어요.
