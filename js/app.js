@@ -30,6 +30,9 @@ const state = {
   settings: { teamCount: 2, lives: 3, roundSec: 60, poseSec: 15, difficulty: 'normal', model: 'lite', cameraId: '', mode: 'dance' },
   teams: TEAM_PRESETS.map((t) => ({ ...t, membersText: '', score: 0, played: 0, done: [] })),
   history: [],
+  // 대회 단계: league(모두 한 번씩) → knockout(1라운드 승자끼리) → done(최종 우승)
+  // pool/champion 원소: { t: 팀 번호, m: 이름 }
+  ko: { stage: 'league', pool: [], champion: null },
   screen: 'setup',
   tracker: null,
   next: null,    // 다음 대결 {sides:[{team, member}]}
@@ -45,6 +48,7 @@ function load() {
     Object.assign(state.settings, d.settings || {});
     (d.teams || []).forEach((t, i) => { if (state.teams[i]) Object.assign(state.teams[i], t, { done: Array.isArray(t.done) ? t.done : [] }); });
     state.history = d.history || [];
+    if (d.ko && Array.isArray(d.ko.pool)) state.ko = d.ko;
   } catch { /* 저장소를 못 쓰는 환경이면 무시 */ }
 }
 function save() {
@@ -53,6 +57,7 @@ function save() {
       settings: state.settings,
       teams: state.teams.map(({ name, color, membersText, score, played, done }) => ({ name, color, membersText, score, played, done })),
       history: state.history.slice(0, 30),
+      ko: state.ko,
     }));
   } catch { /* 무시 */ }
 }
@@ -180,28 +185,83 @@ function remaining(team) {
 }
 const pickRandom = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
+const entry = (e) => ({ team: state.teams[e.t], member: e.m });
+const keyOf = (team, member) => ({ t: state.teams.indexOf(team), m: member });
+const sameEntry = (a, b) => a.t === b.t && a.m === b.m;
+const samePair = (a, b) => b && a.every((sd) => b.some((p) => p.team === sd.team && p.member === sd.member));
+
+// 1라운드: 아직 안 한 선수끼리. 한 팀만 남으면 그 선수는 다른 팀의 이미 한 선수와 대결
+function drawLeague(prev) {
+  const left = activeTeams().filter((t) => remaining(t).length > 0);
+  if (!left.length) return null;
+  for (let k = 0; k < 10; k++) {
+    let sides;
+    if (left.length >= 2) {
+      const pool = shuffle(left).sort((a, b) => a.played - b.played); // 대결을 적게 한 팀 우선
+      sides = shuffle([pool[0], pool[1]]).map((team) => ({ team, member: pickRandom(remaining(team)) }));
+    } else {
+      const team = left[0];
+      const others = activeTeams().filter((t) => t !== team);
+      const opp = pickRandom(others);
+      sides = shuffle([{ team, member: pickRandom(remaining(team)) }, { team: opp, member: pickRandom(members(opp)) }]);
+    }
+    if (!samePair(sides, prev && prev.sides) || k === 9) return sides;
+  }
+  return null;
+}
+
+// 승자 진출전: 남은 진출자 중 두 명 (가능하면 다른 팀끼리)
+function drawKnockout(prev) {
+  const pool = state.ko.pool;
+  if (pool.length < 2) return null;
+  for (let k = 0; k < 10; k++) {
+    const order = shuffle(pool);
+    const a = order[0];
+    const b = order.slice(1).find((e) => e.t !== a.t) || order[1];
+    const sides = shuffle([entry(a), entry(b)]);
+    if (!samePair(sides, prev && prev.sides) || k === 9) return sides;
+  }
+  return null;
+}
+
 function drawNext() {
   const prev = state.next;
-  const teams = activeTeams().filter((t) => remaining(t).length > 0);
-  if (teams.length < 2) { state.next = null; renderLobby(); return; }
-  // 대결을 적게 한 팀 우선, 같으면 무작위
-  const pool = shuffle(teams).sort((a, b) => a.played - b.played);
-  const pair = shuffle([pool[0], pool[1]]);
-  let sides = null;
-  // 다시 뽑기라면 가능한 한 직전과 다른 조합이 나오게 몇 번 시도
-  for (let k = 0; k < 10; k++) {
-    sides = pair.map((team) => ({ team, member: pickRandom(remaining(team)) }));
-    const same = prev && sides.every((sd) => prev.sides.some((p) => p.team === sd.team && p.member === sd.member));
-    if (!same) break;
-  }
-  state.next = { sides };
-  renderLobby(true);
+  const stage = state.ko.stage;
+  const sides = stage === 'league' ? drawLeague(prev) : stage === 'knockout' ? drawKnockout(prev) : null;
+  state.next = sides ? { sides, stage } : null;
+  renderLobby(!!sides);
 }
+
+function startKnockout() {
+  if (state.ko.pool.length <= 1) {
+    state.ko.stage = 'done';
+    state.ko.champion = state.ko.pool[0] || null;
+  } else {
+    state.ko.stage = 'knockout';
+  }
+  save();
+  drawNext();
+}
+
 function renderLobby(roll = false) {
   const sb = $('scoreboard');
   sb.innerHTML = activeTeams()
     .slice().sort((a, b) => b.score - a.score)
-    .map((t) => `<div class="team-score" style="background:${t.color}"><span>${esc(t.name)}<small>남은 선수 ${remaining(t).length}명</small></span><b>${t.score}점</b></div>`).join('');
+    .map((t) => {
+      const ti = state.teams.indexOf(t);
+      const sub = state.ko.stage === 'league'
+        ? `남은 선수 ${remaining(t).length}명`
+        : `진출 ${state.ko.pool.filter((e) => e.t === ti).length}명`;
+      return `<div class="team-score" style="background:${t.color}"><span>${esc(t.name)}<small>${sub}</small></span><b>${t.score}점</b></div>`;
+    }).join('');
+  const ko = state.ko;
+  const leftCount = activeTeams().reduce((n, t) => n + remaining(t).length, 0);
+  $('stageInfo').innerHTML = ko.stage === 'league'
+    ? `<b>1라운드</b> · 모두 한 번씩 (남은 선수 ${leftCount}명)`
+    : ko.stage === 'knockout'
+      ? `<b>🔥 승자 진출전</b> · 이기면 계속 올라가요 (남은 진출자 ${ko.pool.length}명)`
+      : '<b>👑 대회 끝!</b>';
+  $('stageInfo').className = `stage-info ${ko.stage}`;
   $('history').innerHTML = state.history.slice(0, 8).map((h) => `<li>${esc(h)}</li>`).join('') || '<li>아직 대결이 없어요</li>';
   const tr = state.tracker;
   $('modeInfo').textContent = !tr ? '' : tr.kind === 'sim'
@@ -213,7 +273,18 @@ function renderLobby(roll = false) {
   $('fightBtn').disabled = !n;
   $('drawBtn').disabled = !n;
   if (!n) {
-    v.innerHTML = `<div style="grid-column:1/-1;font-size:24px;padding:20px 0">🎉 모든 선수가 대결을 마쳤어요!<br><small style="color:var(--muted)">점수 초기화를 누르면 처음부터 다시 뽑아요</small></div>`;
+    if (ko.stage === 'league') {
+      v.innerHTML = `<div class="stage-msg">🎉 1라운드 끝! 모두 한 번씩 대결했어요<br>
+        <small>1라운드에서 이긴 ${ko.pool.length}명이 승자 진출전에 나가요</small><br>
+        <button id="koBtn" class="primary">🔥 승자 진출전 시작</button></div>`;
+      $('koBtn').addEventListener('click', startKnockout);
+    } else {
+      const c = ko.champion && entry(ko.champion);
+      v.innerHTML = `<div class="stage-msg">${c
+        ? `👑 최종 우승<div class="champ" style="background:${c.team.color}">${esc(c.member)}<small>${esc(c.team.name)}</small></div>`
+        : '대회가 끝났어요!'}
+        <small>점수 초기화를 누르면 처음부터 다시 시작해요</small></div>`;
+    }
     return;
   }
   v.innerHTML = n.sides.map((s, i) => `<div class="who" style="background:${s.team.color};box-shadow:0 0 0 4px ${SIDE_COLORS[i]}">
@@ -249,6 +320,7 @@ function startMatch() {
     hist: [],          // 최근 춤 자세 {t, pose}
     lastStep: -1,
     sides: state.next.sides,
+    stage: state.next.stage,
     judges: [new PlayerJudge(s.lives), new PlayerJudge(s.lives)],
     poses: makePoseOrder(segs),
     poseIdx: 0,
@@ -467,15 +539,33 @@ function finishMatch(outs, timeUp) {
   if (m.mode !== 'dance' && timeUp && winner === -1 && !outs[0] && !outs[1]) reason = '시간 종료! 완전 막상막하예요';
 
   const sides = m.sides;
+  const stage = m.stage;
+  const ko = state.ko;
   sides.forEach((sd) => { sd.team.played++; if (!sd.team.done.includes(sd.member)) sd.team.done.push(sd.member); });
-  if (winner >= 0) sides[winner].team.score++;
+  // 같은 팀끼리 만난 진출전은 팀 점수 없이 개인 승패만
+  const teamPoint = winner >= 0 && sides[0].team !== sides[1].team;
+  if (teamPoint) sides[winner].team.score++;
+  const keys = sides.map((sd) => keyOf(sd.team, sd.member));
+  if (stage === 'league') {
+    // 1라운드 승자는 진출 (무승부는 둘 다 진출)
+    const adv = winner >= 0 ? [keys[winner]] : keys;
+    adv.forEach((k) => { if (!ko.pool.some((e) => sameEntry(e, k))) ko.pool.push(k); });
+  } else if (stage === 'knockout' && winner >= 0) {
+    ko.pool = ko.pool.filter((e) => !sameEntry(e, keys[1 - winner])); // 진 사람 탈락, 무승부면 다시 대결
+    if (ko.pool.length <= 1) { ko.stage = 'done'; ko.champion = ko.pool[0] || null; }
+  }
   const label = (i) => `${sides[i].member}(${sides[i].team.name})`;
-  state.history.unshift(winner >= 0 ? `🏆 ${label(winner)} 승 vs ${label(1 - winner)}` : `🤝 ${label(0)} vs ${label(1)} 무승부`);
+  const tag = stage === 'knockout' ? '[진출전] ' : '';
+  state.history.unshift(winner >= 0 ? `${tag}🏆 ${label(winner)} 승 vs ${label(1 - winner)}` : `${tag}🤝 ${label(0)} vs ${label(1)} 무승부`);
+  if (ko.stage === 'done' && ko.champion) state.history.unshift(`👑 최종 우승: ${sides[winner].member}(${sides[winner].team.name})`);
   state.next = null;
   save();
 
   setTimeout(() => {
-    $('resultTitle').textContent = winner >= 0 ? `🏆 ${sides[winner].member} 승리!` : '🤝 무승부!';
+    $('resultTitle').textContent = ko.stage === 'done' && stage === 'knockout' && winner >= 0
+      ? `👑 ${sides[winner].member} 최종 우승!`
+      : winner >= 0 ? `🏆 ${sides[winner].member} 승리!` : '🤝 무승부!';
+    if (ko.stage === 'done' && stage === 'knockout') sfx.win();
     $('resultBody').innerHTML = `<p style="grid-column:1/-1;text-align:center;color:var(--muted);margin:0">${esc(reason)}</p>` +
       sides.map((sd, i) => {
         const j = m.judges[i];
@@ -485,7 +575,9 @@ function finishMatch(outs, timeUp) {
           ${m.mode === 'dance'
             ? `<div class="big">${Math.floor(j.score)}점</div><div>얼음 성공 ${j.freezeOK}번 · 평균 일치 ${Math.round(j.avgMatch * 100)}%</div>`
             : `<div>바른 자세 ${j.okTime.toFixed(1)}초 · 평균 일치 ${Math.round(j.avgMatch * 100)}%</div>`}
-          ${i === winner ? '<div class="big">팀 +1점</div>' : ''}</div>`;
+          ${i === winner ? `<div class="big">${teamPoint ? '팀 +1점' : '승리!'}</div>` : ''}
+          ${stage === 'league' && (i === winner || winner < 0) ? '<div>🔥 승자 진출전 진출!</div>' : ''}
+          ${stage === 'knockout' && winner >= 0 ? `<div>${i === winner ? (ko.stage === 'done' ? '👑 최종 우승!' : '🔥 다음 판 진출!') : '탈락'}</div>` : ''}</div>`;
       }).join('');
     show('result');
     if (winner >= 0) sfx.win();
@@ -495,7 +587,7 @@ function finishMatch(outs, timeUp) {
 
 function abortMatch() {
   if (!state.match) return;
-  state.next = { sides: state.match.sides };
+  state.next = { sides: state.match.sides, stage: state.match.stage };
   state.match = null;
   renderLobby();
   show('lobby');
@@ -641,6 +733,7 @@ function bind() {
   $('resetScoreBtn').addEventListener('click', () => {
     if (!confirm('모든 팀 점수와 기록을 지우고, 모든 선수를 다시 뽑을 수 있게 할까요?')) return;
     state.teams.forEach((t) => { t.score = 0; t.played = 0; t.done = []; });
+    state.ko = { stage: 'league', pool: [], champion: null };
     state.history = [];
     save(); drawNext();
   });
@@ -648,7 +741,7 @@ function bind() {
     if (e.target.matches('input, textarea, select')) return;
     if (e.code === 'Space') {
       e.preventDefault();
-      if (state.screen === 'lobby') startMatch();
+      if (state.screen === 'lobby') { if (state.next) startMatch(); else $('koBtn')?.click(); }
       else if (state.screen === 'result') $('nextBtn').click();
     } else if (e.code === 'KeyR' && state.screen === 'lobby') drawNext();
     else if (e.code === 'Escape' && state.screen === 'play') abortMatch();

@@ -143,3 +143,12 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 #hud.dance.frozen .pose-card { border-color: #2a9df4; background: #e9f6ff; }
 #hud.dance.frozen #ghost { background: #d4ecff; }
 .player-panel .pscore { margin-left: auto; font-size: 34px; color: #ffd84d; }
+
+/* ---------- 대회 단계 ---------- */
+.stage-info { font-size: 18px; color: var(--muted); margin: -8px 0 14px; }
+.stage-info.knockout { color: #d9480f; }
+.stage-info.done { color: #b8860b; }
+.stage-msg { grid-column: 1 / -1; font-size: 24px; padding: 14px 0; text-align: center; }
+.stage-msg small { display: block; color: var(--muted); font-size: 16px; margin: 6px 0 12px; }
+.stage-msg .champ { color: #fff; border-radius: 18px; padding: 14px; margin: 10px auto; max-width: 280px; font-size: 38px; box-shadow: 0 0 0 5px #ffd84d; }
+.stage-msg .champ small { color: #fff; opacity: .9; margin: 0; }
