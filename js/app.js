@@ -1,6 +1,6 @@
 // 얼음! 자세 버티기 - 메인 게임 흐름
 import { POSES, BONES, JOINTS, LM } from './poses.js';
-import { PlayerJudge, DIFFICULTY } from './judge.js';
+import { PlayerJudge, DIFFICULTY, seenLm } from './judge.js';
 import { CameraTracker, listCameras } from './tracker.js';
 import { SimTracker } from './sim.js';
 import { sfx } from './sound.js';
@@ -362,7 +362,7 @@ function buildPanels() {
 }
 
 const STATUS_TEXT = {
-  ok: '좋아요! 그대로! 🧊', wobble: '흔들려요! 😵', pose: '자세를 맞춰요! 👀', missing: '다리까지 보이게! 🙈', wait: '',
+  ok: '좋아요! 그대로! 🧊', wobble: '흔들려요! 😵', pose: '자세를 맞춰요! 👀', missing: '몸이 화면에 보이게! 🙈', wait: '',
   great: '완벽해요! 🔥', good: '좋아요! 👍', follow: '춤을 따라 춰요! 💃',
 };
 
@@ -632,12 +632,12 @@ const BONE_ANGLE = {
 const GOOD = '#2fdc7a', BAD = '#ff4d5e';
 // 생명이 깎이거나 점수가 안 오르는 상태 → 빨간 테두리 + 머리 위 이유 표시
 const BAD_REASON = {
-  missing: '다리까지 화면에 보이게!',
+  missing: '몸이 화면에 보이게!',
   wobble: '흔들려요!',
   pose: '자세가 달라요',
   follow: '자세가 달라요',
 };
-const HIT_TEXT = { missing: '다리가 화면 밖으로 나갔어요', wobble: '흔들렸어요', pose: '자세가 달랐어요' };
+const HIT_TEXT = { missing: '몸이 화면 밖으로 나갔어요', wobble: '흔들렸어요', pose: '자세가 달랐어요' };
 
 // judge가 있으면(대결 중) 몸 주변에 초록(자세 맞음)/빨강(틀림) 테두리를 두르고,
 // 팔다리 마디도 하나씩 초록/빨강으로 칠해 어느 부위가 틀렸는지 보여준다
@@ -663,7 +663,7 @@ function drawSkeleton(lms, color, W, H, judge, okThr, alert) {
     ctx.shadowColor = ok ? GOOD : BAD;
     ctx.shadowBlur = lw * 3;
     ctx.lineWidth = lw * 4.2;
-    for (const [a, b] of BONES) line(a, b);
+    for (const [a, b] of BONES) if (seenLm(lms[a]) && seenLm(lms[b])) line(a, b);
     ctx.beginPath(); ctx.arc(n.x, n.y, headR, 0, Math.PI * 2); ctx.stroke();
     ctx.restore();
   } else {
@@ -673,6 +673,15 @@ function drawSkeleton(lms, color, W, H, judge, okThr, alert) {
 
   ctx.lineWidth = lw;
   for (const [a, b] of BONES) {
+    if (!seenLm(lms[a]) || !seenLm(lms[b])) {
+      // 화면 밖이라 판정에서 빠진 부위: 회색 점선
+      ctx.save();
+      ctx.setLineDash([lw * 1.2, lw * 1.2]);
+      ctx.strokeStyle = 'rgba(200,200,200,0.6)';
+      line(a, b);
+      ctx.restore();
+      continue;
+    }
     const key = BONE_ANGLE[`${a}-${b}`];
     const part = showFit && judge.parts && key ? judge.parts[key] : null;
     ctx.strokeStyle = part == null ? color : part >= 0.5 ? GOOD : BAD;
@@ -687,14 +696,15 @@ function drawSkeleton(lms, color, W, H, judge, okThr, alert) {
   ctx.lineWidth = lw * 0.8; ctx.strokeStyle = color; ctx.stroke();
 
   // 빨간 상태면 머리 위에 이유를 띄운다
-  if (showFit && !ok) {
-    const text = alert ? BAD_REASON.wobble : reason;
+  const note = showFit && ok && judge.legsSeen === false ? '다리가 안 보여서 팔만 판정 중' : null;
+  if (showFit && (!ok || note)) {
+    const text = !ok ? (alert ? BAD_REASON.wobble : reason) : note;
     const fs = Math.max(18, Math.min(40, torso * 0.2));
     ctx.save();
     ctx.font = `${fs}px Jua, sans-serif`;
     const tw = ctx.measureText(text).width;
     const bx = n.x - tw / 2 - fs * 0.5, by = Math.max(4, n.y - headR - fs * 2.1);
-    ctx.fillStyle = 'rgba(255,77,94,0.92)';
+    ctx.fillStyle = !ok ? 'rgba(255,77,94,0.92)' : 'rgba(60,70,90,0.8)';
     ctx.beginPath(); ctx.roundRect(bx, by, tw + fs, fs * 1.5, fs * 0.4); ctx.fill();
     ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText(text, n.x, by + fs * 0.78);

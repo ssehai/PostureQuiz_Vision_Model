@@ -15,19 +15,19 @@ const WINDOW = 0.8;         // 흔들림을 재는 시간 창(초)
 const MISSING_LIMIT = 0.35; // 이 시간(초) 이상 안 보이면 '안 보임' 처리
 const INVINCIBLE = 1.6;     // 생명 잃은 뒤 무적 시간(초)
 
-// 몸통과 다리가 화면 안에 보이는지.
-// 팔(팔꿈치·손목)과 머리는 검사하지 않는다: 만세처럼 손을 높이 들면 손이 화면 위로
-// 잘리기 쉬운데, 그때도 AI는 손 위치를 추정해 주므로 판정에는 문제가 없다.
-const BODY_CORE = [LM.lShoulder, LM.rShoulder, LM.lHip, LM.rHip, LM.lKnee, LM.rKnee, LM.lAnkle, LM.rAnkle];
-export function isFullBody(lms) {
-  for (const i of BODY_CORE) {
-    const p = lms[i];
-    if (!p) return false;
-    if (p.visibility != null && p.visibility < 0.2) return false;
-    if (p.x < -0.05 || p.x > 1.05 || p.y < -0.05 || p.y > 1.08) return false;
-  }
-  return true;
+// 관절 하나가 화면 안에 또렷이 보이는지
+export function seenLm(p) {
+  return !!p && (p.visibility == null || p.visibility >= 0.3) &&
+    p.x > -0.05 && p.x < 1.05 && p.y > -0.05 && p.y < 1.05;
 }
+
+// 몸통(어깨·엉덩이)이 보이는지. 이것만 안 보일 때 '화면 밖'으로 벌점을 준다.
+// 다리가 화면 아래로 잘리거나 손이 위로 잘려도 벌점은 없고, 안 보이는 다리는 판정에서 뺀다.
+const TORSO = [LM.lShoulder, LM.rShoulder, LM.lHip, LM.rHip];
+export function isFullBody(lms) {
+  return TORSO.every((i) => seenLm(lms[i]));
+}
+const LEGS = [LM.lKnee, LM.rKnee, LM.lAnkle, LM.rAnkle];
 
 export class PlayerJudge {
   constructor(lives) {
@@ -88,6 +88,9 @@ export class PlayerJudge {
     this.missingFor = 0;
     this.visible = true;
     this.fullBody = isFullBody(lms);
+    this.seen = {};
+    for (const i of JOINTS) this.seen[i] = seenLm(lms[i]);
+    this.legsSeen = LEGS.every((i) => this.seen[i]);
 
     if (!this.smooth) {
       this.smooth = {};
@@ -114,7 +117,8 @@ export class PlayerJudge {
     this.hist.push({ t: this.clock, norm });
     while (this.hist.length && this.clock - this.hist[0].t > WINDOW) this.hist.shift();
     if (this.hist.length >= 4) {
-      const keys = ['hip', ...JOINTS];
+      // 화면 밖이라 추정만 된 관절은 위치가 크게 튀므로 흔들림 계산에서 뺀다
+      const keys = ['hip', ...JOINTS.filter((i) => this.seen[i])];
       let total = 0;
       for (const k of keys) {
         let mx = 0, my = 0;
@@ -127,6 +131,10 @@ export class PlayerJudge {
       this.wobble = total / (keys.length + 2);
     }
     this.angles = computeAngles(s);
+    // 안 보이는 다리는 각도를 빼서 팔(과 보이는 다리)만으로 판정
+    const a = this.angles;
+    if (!this.seen[LM.lKnee]) { a.lHip = null; a.lKnee = null; } else if (!this.seen[LM.lAnkle]) a.lKnee = null;
+    if (!this.seen[LM.rKnee]) { a.rHip = null; a.rKnee = null; } else if (!this.seen[LM.rAnkle]) a.rKnee = null;
   }
 
   // 판정 한 스텝. judging=false면 게이지만 서서히 줄어든다(자세 바꾸는 준비 시간).
