@@ -250,6 +250,7 @@ class FixedBase extends Base {
 const B_LIFE = 3.2;   // 풍선이 떠 있는 시간
 const B_ARM = 0.5;    // 폭탄이 나타난 뒤 이 시간 동안은 닿아도 안전 (피할 시간)
 const B_R = 0.22;     // 풍선 반지름 (몸통 길이 단위)
+const B_GAP = 1.05;   // 폭탄과 풍선 중심 사이 최소 거리 (풍선을 치다가 폭탄을 같이 건드리지 않게)
 const B_X = 1.85, B_TOP = -2.7, B_BOT = 1.7; // 풍선이 나올 수 있는 범위
 
 class Balloon extends FixedBase {
@@ -279,7 +280,7 @@ class Balloon extends FixedBase {
     const low = u[1] < 0.2; // 발로 찰 수 있는 낮은 곳
     const hands = type === 'bomb' ? this.hitPoints(i) : [];
     // 폭탄과 풍선이 겹치지 않게, 폭탄이 손·머리 위에 바로 생기지 않게: 안 겹치는 자리를 차례로 찾아본다
-    for (let a = 0; a < 10; a++) {
+    for (let a = 0; a < 14; a++) {
       let x, y;
       const turn = (a % 2 ? -1 : 1) * Math.ceil(a / 2) * 0.55;
       if (low) {
@@ -292,7 +293,7 @@ class Balloon extends FixedBase {
         y = -1 - Math.cos(phi) * d;
       }
       x = clamp(x, -B_X, B_X); y = clamp(y, B_TOP, B_BOT);
-      const clash = sd.items.some((it) => (it.type === 'bomb') !== (type === 'bomb') && Math.hypot(it.x - x, it.y - y) < B_R * 2.6) ||
+      const clash = sd.items.some((it) => (it.type === 'bomb') !== (type === 'bomb') && Math.hypot(it.x - x, it.y - y) < B_GAP) ||
         hands.some((h) => Math.hypot(h.x - x, h.y - y) < B_R * 2.4);
       if (!clash) { sd.items.push({ type, x, y, age: 0, bob: u[4] * 6 }); return; }
     }
