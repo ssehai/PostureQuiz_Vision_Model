@@ -50,6 +50,7 @@ export class PlayerJudge {
     this.status = 'wait';   // ok | wobble | pose | missing | wait
     this.matchSum = 0; this.matchN = 0; this.okTime = 0;
     this.lastHit = -1;
+    this.everSeen = false;  // 대결 중 한 번이라도 화면에 나왔는지 (안 나왔으면 '빈 자리')
     this.score = 0;         // 댄스 모드 점수
     this.freezeOK = 0;      // 댄스 모드: 생명을 잃지 않고 버틴 '얼음' 횟수
   }
@@ -58,6 +59,7 @@ export class PlayerJudge {
   // 사람은 화면을 보고 따라 하느라 조금 늦으므로, 그중 가장 비슷한 자세로 채점한다.
   // 반환값: 이번 프레임 춤 품질 0~1
   danceStep(dt, poses, diff) {
+    if (!this.everSeen) { this.status = 'empty'; this.match = 0; this.parts = null; this.danger = 0; return 0; }
     this.invincible = Math.max(0, this.invincible - dt);
     this.danger = Math.max(0, this.danger - dt * 0.8);
     let best = 0, parts = null;
@@ -88,6 +90,7 @@ export class PlayerJudge {
     this.missingFor = 0;
     this.visible = true;
     this.fullBody = isFullBody(lms);
+    if (this.fullBody) this.everSeen = true;
     this.seen = {};
     for (const i of JOINTS) this.seen[i] = seenLm(lms[i]);
     this.legsSeen = LEGS.every((i) => this.seen[i]);
@@ -140,6 +143,8 @@ export class PlayerJudge {
   // 판정 한 스텝. judging=false면 게이지만 서서히 줄어든다(자세 바꾸는 준비 시간).
   // 반환값: 이번 스텝에 생명을 잃었으면 true
   step(dt, pose, diff, judging, now) {
+    // 한 번도 나오지 않은 빈 자리에는 벌점을 주지 않는다 (혼자 연습할 때)
+    if (!this.everSeen) { this.status = 'empty'; this.match = 0; this.parts = null; this.danger = 0; return false; }
     const d = this.visible && this.angles && pose ? poseDetail(this.angles, pose, diff.tol, diff.falloff) : null;
     this.match = d ? d.score : 0;
     this.parts = d ? d.parts : null;

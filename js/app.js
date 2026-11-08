@@ -363,7 +363,7 @@ function buildPanels() {
 
 const STATUS_TEXT = {
   ok: '좋아요! 그대로! 🧊', wobble: '흔들려요! 😵', pose: '자세를 맞춰요! 👀', missing: '몸이 화면에 보이게! 🙈', wait: '',
-  great: '완벽해요! 🔥', good: '좋아요! 👍', follow: '춤을 따라 춰요! 💃',
+  great: '완벽해요! 🔥', good: '좋아요! 👍', follow: '춤을 따라 춰요! 💃', empty: '빈 자리 (혼자 연습 중)',
 };
 
 function updatePanels(judging) {
@@ -384,7 +384,7 @@ function updatePanels(judging) {
     el.querySelector('.pscore').textContent = m.mode === 'dance' ? `${Math.floor(j.score)}점` : '';
     const st = el.querySelector('.status');
     const dancing = m.mode === 'dance' && m.sub === 'dance';
-    const status = j.lives <= 0 ? 'out' : dancing ? j.status : !judging && j.status !== 'missing' ? 'wait' : j.status;
+    const status = j.lives <= 0 ? 'out' : dancing || j.status === 'empty' ? j.status : !judging && j.status !== 'missing' ? 'wait' : j.status;
     st.className = `status ${status}`;
     st.textContent = status === 'out' ? '탈락 💧'
       : status === 'wait' ? (m.mode === 'dance' ? '얼음! 그대로 멈춰요! 🧊' : j.match >= diff.match ? '준비 완료! 👍' : '자세를 바꿔요!')
@@ -543,6 +543,26 @@ function finishMatch(outs, timeUp) {
   if (m.mode !== 'dance' && timeUp && winner === -1 && !outs[0] && !outs[1]) reason = '시간 종료! 완전 막상막하예요';
 
   const sides = m.sides;
+  // 한쪽이 끝까지 한 번도 안 나왔으면 연습 경기: 기록·팀 점수 없이 같은 대결을 다시 대기
+  const empty = m.judges.map((j) => !j.everSeen);
+  if (empty[0] || empty[1]) {
+    state.next = { sides, round: m.round };
+    setTimeout(() => {
+      $('resultTitle').textContent = '🧪 연습 경기 끝!';
+      $('resultBody').innerHTML = `<p style="grid-column:1/-1;text-align:center;color:var(--muted);margin:0">한 명만 있어서 기록하지 않았어요. 두 명이 서면 정식 대결이 돼요</p>` +
+        sides.map((sd, i) => {
+          const j = m.judges[i];
+          return `<div class="rcol" style="background:${sd.team.color};${empty[i] ? 'opacity:.5' : ''}">
+            <div class="big">${esc(sd.member)}</div><div>${esc(sd.team.name)}</div>
+            ${empty[i] ? '<div>빈 자리</div>' : m.mode === 'dance'
+              ? `<div class="big">${Math.floor(j.score)}점</div><div>남은 생명 ${'❤️'.repeat(j.lives) || '없음'} · 얼음 성공 ${j.freezeOK}번</div>`
+              : `<div>남은 생명 ${'❤️'.repeat(j.lives) || '없음'}</div><div>바른 자세 ${j.okTime.toFixed(1)}초</div>`}</div>`;
+        }).join('');
+      show('result');
+    }, 900);
+    big('끝!', 900);
+    return;
+  }
   const helperIdx = sides.findIndex((sd) => sd.helper);
   // 기록: 도우미는 제외. 점수 합계(댄스왕)는 댄스 점수, 버티기 모드는 바른 자세 시간×10
   sides.forEach((sd, i) => {
@@ -798,7 +818,11 @@ function bind() {
   $('simBtn').addEventListener('click', () => startApp(true));
   $('drawBtn').addEventListener('click', drawNext);
   $('fightBtn').addEventListener('click', startMatch);
-  $('nextBtn').addEventListener('click', () => { state.match = null; drawNext(); show('lobby'); });
+  $('nextBtn').addEventListener('click', () => {
+    state.match = null;
+    if (state.next) renderLobby(); else drawNext(); // 연습 경기였으면 같은 대결 그대로
+    show('lobby');
+  });
   $('settingsBtn').addEventListener('click', () => { renderSetup(); show('setup'); });
   $('resetScoreBtn').addEventListener('click', () => {
     if (!confirm('모든 팀 점수와 기록을 지우고, 모든 선수를 다시 뽑을 수 있게 할까요?')) return;
