@@ -28,8 +28,8 @@ const rand = (a, b) => a + Math.random() * (b - a);
 
 // ---------------- 상태 ----------------
 const state = {
-  settings: { teamCount: 2, lives: 3, roundSec: 45, rounds: 1, poseSec: 15, difficulty: 'normal', model: 'lite', cameraId: '', mode: 'dance' },
-  teams: TEAM_PRESETS.map((t) => ({ ...t, membersText: '', score: 0, played: 0, done: [] })),
+  settings: { teamCount: 2, lives: 3, roundSec: 45, rounds: 1, poseSec: 15, difficulty: 'normal', model: 'lite', cameraId: '', mode: 'random', v: 2 },
+  teams: TEAM_PRESETS.map((t) => ({ ...t, membersText: '', score: 0, played: 0, games: 0, done: [] })),
   history: [],
   // 대회: 라운드마다 모든 학생이 정확히 한 번씩 대결 (스위스 방식)
   round: 1,
@@ -47,6 +47,7 @@ function load() {
     if (!raw) return;
     const d = JSON.parse(raw);
     Object.assign(state.settings, d.settings || {});
+    if (!d.settings || d.settings.v !== 2) { state.settings.mode = 'random'; state.settings.v = 2; } // 돌림판이 생기면서 기본값을 바꿈
     (d.teams || []).forEach((t, i) => { if (state.teams[i]) Object.assign(state.teams[i], t); });
     state.history = d.history || [];
     if (d.recs && typeof d.recs === 'object') state.recs = d.recs;
@@ -57,7 +58,7 @@ function save() {
   try {
     localStorage.setItem(STORE_KEY, JSON.stringify({
       settings: state.settings,
-      teams: state.teams.map(({ name, color, membersText, score, played }) => ({ name, color, membersText, score, played })),
+      teams: state.teams.map(({ name, color, membersText, score, played, games }) => ({ name, color, membersText, score, played, games })),
       history: state.history.slice(0, 30),
       round: state.round,
       recs: state.recs,
@@ -244,22 +245,26 @@ function nextRound() {
   drawNext();
 }
 
-// 대회 결과: 팀 순위, 점수 합계 상위(댄스왕), 전승 학생
+// 팀 순위는 팀원 한 판당 평균 점수 (팀 인원이 달라도 공정하게)
+const teamAvg = (t) => (t.games ? Math.round(t.score / t.games) : 0);
+const byAvg = (a, b) => teamAvg(b) - teamAvg(a) || b.score - a.score;
+
+// 대회 결과: 팀 순위, 점수 합계 상위(점수왕), 전승 학생
 function standings() {
   const players = allPlayers().map((p) => ({ ...p, r: rec(p.team, p.member) }));
   const top = players.slice().sort((a, b) => b.r.points - a.r.points).slice(0, 3);
   const perfect = players.filter((p) => p.r.games > 0 && p.r.wins === p.r.games);
-  const teams = activeTeams().slice().sort((a, b) => b.score - a.score);
+  const teams = activeTeams().slice().sort(byAvg);
   return { top, perfect, teams };
 }
 
 function renderLobby(roll = false) {
   const sb = $('scoreboard');
   sb.innerHTML = activeTeams()
-    .slice().sort((a, b) => b.score - a.score)
+    .slice().sort(byAvg)
     .map((t) => {
-      const sub = `이번 라운드 남은 ${waiting(t).length}명`;
-      return `<div class="team-score" style="background:${t.color}"><span>${esc(t.name)}<small>${sub}</small></span><b>${t.score}점</b></div>`;
+      const sub = `합계 ${t.score}점 · ${t.games}판 · 남은 ${waiting(t).length}명`;
+      return `<div class="team-score" style="background:${t.color}"><span>${esc(t.name)}<small>${sub}</small></span><b>평균 ${teamAvg(t)}점</b></div>`;
     }).join('');
   const R = state.settings.rounds;
   const finished = tourneyDone();
@@ -276,6 +281,7 @@ function renderLobby(roll = false) {
   const n = state.next;
   const v = $('versus');
   $('fightBtn').disabled = !n;
+  $('fightBtn').innerHTML = state.settings.mode === 'random' ? '🎰 돌림판 돌리고 시작! <kbd>Space</kbd>' : '대결 시작! <kbd>Space</kbd>';
   $('drawBtn').disabled = !n;
   if (!n) {
     if (!finished) {
@@ -286,11 +292,11 @@ function renderLobby(roll = false) {
     } else {
       const st = standings();
       const best = st.teams[0];
-      const tie = st.teams[1] && st.teams[1].score === best.score;
+      const tie = st.teams[1] && teamAvg(st.teams[1]) === teamAvg(best);
       v.innerHTML = `<div class="stage-msg">
-        ${tie ? '🤝 공동 우승!' : `🏆 우승 팀<div class="champ" style="background:${best.color}">${esc(best.name)}<small>${best.score}승</small></div>`}
+        ${tie ? '🤝 공동 우승!' : `🏆 우승 팀<div class="champ" style="background:${best.color}">${esc(best.name)}<small>평균 ${teamAvg(best)}점 · 합계 ${best.score}점</small></div>`}
         <div class="awards${state.settings.rounds > 1 ? '' : ' one'}">
-          <div><b>${state.settings.mode === 'dance' ? '🕺 댄스왕' : '🏅 점수왕'} (${state.settings.rounds > 1 ? '점수 합계' : '점수 순위'})</b>${st.top.map((p, i) => `<span>${['🥇', '🥈', '🥉'][i]} ${esc(p.member)} <em>${esc(p.team.name)} · ${p.r.points}점</em></span>`).join('')}</div>
+          <div><b>🏅 점수왕 (${state.settings.rounds > 1 ? '점수 합계' : '점수 순위'})</b>${st.top.map((p, i) => `<span>${['🥇', '🥈', '🥉'][i]} ${esc(p.member)} <em>${esc(p.team.name)} · ${p.r.points}점</em></span>`).join('')}</div>
           ${state.settings.rounds > 1 ? `<div><b>⭐ 전승</b>${st.perfect.length ? st.perfect.map((p) => `<span>${esc(p.member)} <em>${esc(p.team.name)}</em></span>`).join('') : '<span>없음</span>'}</div>` : ''}
         </div>
         <small>점수 초기화를 누르면 처음부터 다시 시작해요</small></div>`;
@@ -313,10 +319,11 @@ function makePoseOrder(n) {
   return order.slice(0, n);
 }
 
-function startMatch() {
+function startMatch(mode) {
   if (!state.next) return;
   sfx.unlock();
-  const s = state.settings;
+  const s = { ...state.settings, mode: mode || (state.settings.mode === 'random' ? 'dance' : state.settings.mode) };
+  state.lastMode = s.mode;
   const segs = Math.ceil(s.roundSec / s.poseSec);
   const dance = s.mode === 'dance' ? DANCES[Math.floor(Math.random() * DANCES.length)] : null;
   const arcade = isArcade(s.mode) ? createArcade(s.mode, { lives: s.lives, diff: DIFFICULTY[s.difficulty] }) : null;
@@ -353,6 +360,81 @@ function startMatch() {
   buildPanels();
   if (arcade) setArcadeCard(); else if (dance) setDanceCard(); else setPoseCard(state.match.pose);
   show('play');
+}
+
+// ---------------- 🎰 게임 돌림판 ----------------
+const WHEEL = ['dance', 'balloon', 'wall', 'race', 'goalie'];
+const WHEEL_COLORS = ['#ff6b4a', '#ffb020', '#3d8bff', '#18a874', '#9b59ff'];
+const SPIN_SEC = 3.4;
+
+function drawWheel(rot, hi = -1) {
+  const c = $('wheel'), g = c.getContext('2d'), R = c.width / 2 - 10, cx = c.width / 2, cy = c.height / 2;
+  const n = WHEEL.length, seg = (Math.PI * 2) / n;
+  g.clearRect(0, 0, c.width, c.height);
+  WHEEL.forEach((mode, k) => {
+    const a0 = rot + k * seg - Math.PI / 2 - seg / 2; // rot=0일 때 k번 칸 가운데가 맨 위 (rot ≡ -k·seg)
+    g.beginPath(); g.moveTo(cx, cy); g.arc(cx, cy, R, a0, a0 + seg); g.closePath();
+    g.fillStyle = WHEEL_COLORS[k]; g.globalAlpha = hi < 0 || hi === k ? 1 : 0.35; g.fill();
+    g.globalAlpha = 1; g.lineWidth = 4; g.strokeStyle = '#fff'; g.stroke();
+    g.save();
+    g.translate(cx, cy); g.rotate(a0 + seg / 2);
+    g.textAlign = 'right'; g.textBaseline = 'middle'; g.fillStyle = '#fff';
+    g.font = `${Math.round(R * 0.2)}px "Apple Color Emoji","Segoe UI Emoji",sans-serif`;
+    g.fillText(MODE_INFO[mode].emoji, R * 0.93, 0);
+    g.font = `${Math.round(R * 0.1)}px Jua, sans-serif`;
+    g.fillText(MODE_INFO[mode].name, R * 0.7, 0);
+    g.restore();
+  });
+  g.beginPath(); g.arc(cx, cy, R * 0.13, 0, Math.PI * 2); g.fillStyle = '#fff'; g.fill();
+  g.font = `${Math.round(R * 0.13)}px "Apple Color Emoji",sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText('🎰', cx, cy + 2);
+  // 맨 위 바늘
+  g.beginPath(); g.moveTo(cx - 22, 2); g.lineTo(cx + 22, 2); g.lineTo(cx, 46); g.closePath();
+  g.fillStyle = '#1d2433'; g.fill(); g.lineWidth = 4; g.strokeStyle = '#fff'; g.stroke();
+}
+
+// 돌림판으로 이번 판 게임을 정한 뒤 시작 (바로 전 판과 같은 게임은 피함)
+function spinAndStart() {
+  if (!state.next || state.spinning) return;
+  if (state.settings.mode !== 'random') { startMatch(); return; }
+  sfx.unlock();
+  state.spinning = true;
+  const choices = WHEEL.map((_, k) => k).filter((k) => WHEEL[k] !== state.lastMode);
+  const pick = choices[Math.floor(Math.random() * choices.length)];
+  const TAU = Math.PI * 2, seg = TAU / WHEEL.length;
+  const jitter = (Math.random() - 0.5) * seg * 0.6;
+  const start = state.wheelRot || 0;
+  const target = -pick * seg + jitter;
+  const total = start + TAU * 6 + ((((target - start) % TAU) + TAU) % TAU);
+  $('rouletteTitle').textContent = '어떤 게임이 나올까요? 🎰';
+  $('roulette').classList.remove('hidden');
+  const t0 = performance.now();
+  let lastSeg = null, finished = false;
+  const finish = () => {
+    if (finished) return;
+    finished = true;
+    state.wheelRot = total % TAU;
+    drawWheel(state.wheelRot, pick);
+    const mode = WHEEL[pick];
+    $('rouletteTitle').textContent = `${MODE_INFO[mode].emoji} ${MODE_INFO[mode].name}!`;
+    sfx.go();
+    setTimeout(() => {
+      $('roulette').classList.add('hidden');
+      state.spinning = false;
+      if (state.screen === 'lobby') startMatch(mode);
+    }, 1600);
+  };
+  const step = (now) => {
+    if (finished) return;
+    const k = Math.min(1, (now - t0) / 1000 / SPIN_SEC);
+    const rot = start + (total - start) * (1 - (1 - k) ** 4); // 처음엔 빠르게, 끝에서 천천히
+    drawWheel(rot);
+    const sNow = Math.floor((rot + seg / 2) / seg);
+    if (sNow !== lastSeg) { lastSeg = sNow; sfx.tick(); }
+    if (k >= 1) finish(); else requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+  setTimeout(finish, SPIN_SEC * 1000 + 600); // 탭이 가려져 애니메이션이 멈춰도 진행
 }
 
 function buildPanels() {
@@ -550,7 +632,7 @@ function tickDance(t, dt, people) {
 
 // ---------------- 활동형 미니게임 (풍선·벽·달리기·골키퍼) ----------------
 function setArcadeCard() {
-  const info = ARCADE_INFO[state.settings.mode] || ARCADE_INFO[Object.keys(ARCADE_INFO)[0]];
+  const info = ARCADE_INFO[state.match.mode];
   $('poseEmoji').textContent = info.emoji;
   $('poseName').textContent = info.name;
   $('poseHint').textContent = info.hint;
@@ -590,7 +672,7 @@ function tickArcade(now, dt, people) {
     $('roundTime').textContent = s.roundSec;
     $('poseBar').style.width = '0%';
     $('posePhase').textContent = '곧 시작해요! 화면에 몸이 다 보이게 서요';
-    if (s.mode === 'race') A.drawCard($('ghost'), m.sides);
+    if (m.mode === 'race') A.drawCard($('ghost'), m.sides);
     updateArcadePanels();
     if (since >= COUNTDOWN) { m.phase = 'play'; m.tPlay = now; setTimeout(hideBig, 700); }
     return;
@@ -603,11 +685,26 @@ function tickArcade(now, dt, people) {
   $('roundTime').textContent = Math.max(0, Math.ceil(s.roundSec - t));
   $('poseBar').style.width = `${Math.min(100, (t / s.roundSec) * 100)}%`;
   $('posePhase').textContent = A.phaseText();
-  if (s.mode === 'race') A.drawCard($('ghost'), m.sides);
+  if (m.mode === 'race') A.drawCard($('ghost'), m.sides);
   updateArcadePanels();
   const outs = A.outs();
   outs.forEach((o, i) => $(`panel${i}`).classList.toggle('out', o));
   if (outs[0] || outs[1] || A.winnerEarly() >= 0 || t >= s.roundSec) finishMatch(outs, t >= s.roundSec);
+}
+
+// 게임마다 점수 크기가 달라서, 팀 점수에 더할 때는 한 판을 0~100점으로 맞춘다
+const WIN_BONUS = 20;
+const MODE_INFO = {
+  dance: { emoji: '💃', name: '댄스 얼음땡' },
+  hold: { emoji: '🧊', name: '자세 버티기' },
+  ...ARCADE_INFO,
+};
+function gamePoints(m, i) {
+  const A = m.arcade, j = m.judges[i];
+  const raw = A
+    ? ({ balloon: 0.25, wall: 6, race: 1.25, goalie: 4 }[m.mode]) * A.players[i].score
+    : m.mode === 'dance' ? j.score / 5 : (j.okTime / state.settings.roundSec) * 100;
+  return Math.round(Math.max(0, Math.min(100, raw)));
 }
 
 function finishMatch(outs, timeUp) {
@@ -657,21 +754,21 @@ function finishMatch(outs, timeUp) {
     return;
   }
   const helperIdx = sides.findIndex((sd) => sd.helper);
-  // 기록: 도우미는 제외. 점수 합계(댄스왕)는 댄스 점수, 버티기 모드는 바른 자세 시간×10
+  // 게임 점수(0~100, 게임마다 크기를 맞춤) + 승리 보너스를 내 팀 점수에 더한다. 도우미는 기록·팀 점수 없음
+  const gp = sides.map((sd, i) => gamePoints(m, i));
+  const earned = sides.map((sd, i) => (sd.helper ? 0 : gp[i] + (winner === i ? WIN_BONUS : 0)));
   sides.forEach((sd, i) => {
     sd.team.played++;
     if (sd.helper) return;
     const r = rec(sd.team, sd.member);
-    const j = m.judges[i];
     r.games++;
-    r.points += Math.floor(A ? A.players[i].score * (m.mode === 'balloon' ? 1 : 10) : m.mode === 'dance' ? j.score : j.okTime * 10);
+    r.points += earned[i];
     if (winner === i) r.wins++;
+    sd.team.score += earned[i];
+    sd.team.games = (sd.team.games || 0) + 1;
   });
-  // 팀 점수: 다른 팀끼리 대결에서 이긴 경우만 (도우미가 이기면 점수 없음)
-  const teamPoint = winner >= 0 && winner !== helperIdx && sides[0].team !== sides[1].team;
-  if (teamPoint) sides[winner].team.score++;
-  const label = (i) => `${sides[i].member}(${sides[i].team.name})${i === helperIdx ? '[도우미]' : ''}`;
-  const tag = `[${m.round}R] `;
+  const label = (i) => `${sides[i].member}(${sides[i].team.name})${i === helperIdx ? '[도우미]' : ` +${earned[i]}`}`;
+  const tag = `[${m.round}R ${MODE_INFO[m.mode].emoji}] `;
   state.history.unshift(winner >= 0 ? `${tag}🏆 ${label(winner)} 승 vs ${label(1 - winner)}` : `${tag}🤝 ${label(0)} vs ${label(1)} 무승부`);
   const finishedNow = tourneyDone();
   if (finishedNow) state.history.unshift('🏁 대회 끝!');
@@ -689,8 +786,8 @@ function finishMatch(outs, timeUp) {
           ${A ? '' : m.mode === 'dance'
             ? `<div class="big">${Math.floor(j.score)}점</div><div>얼음 성공 ${j.freezeOK}번 · 평균 일치 ${Math.round(j.avgMatch * 100)}%</div>`
             : `<div>바른 자세 ${j.okTime.toFixed(1)}초 · 평균 일치 ${Math.round(j.avgMatch * 100)}%</div>`}
-          ${i === winner ? `<div class="big">${teamPoint ? '팀 +1점' : '승리!'}</div>` : ''}
-          ${i === helperIdx ? '<div>🤝 도우미 (기록 안 함)</div>' : ''}</div>`;
+          ${i === helperIdx ? '<div>🤝 도우미 (기록 안 함)</div>'
+            : `<div class="big">팀 +${earned[i]}점</div><div class="pts">게임 ${gp[i]}점${winner === i ? ` + 승리 보너스 ${WIN_BONUS}점` : ''}</div>`}</div>`;
       }).join('');
     show('result');
     if (winner >= 0) sfx.win();
@@ -913,7 +1010,7 @@ function bind() {
   $('startBtn').addEventListener('click', () => startApp(false));
   $('simBtn').addEventListener('click', () => startApp(true));
   $('drawBtn').addEventListener('click', drawNext);
-  $('fightBtn').addEventListener('click', startMatch);
+  $('fightBtn').addEventListener('click', spinAndStart);
   $('nextBtn').addEventListener('click', () => {
     state.match = null;
     if (state.next) renderLobby(); else drawNext(); // 연습 경기였으면 같은 대결 그대로
@@ -922,7 +1019,7 @@ function bind() {
   $('settingsBtn').addEventListener('click', () => { renderSetup(); show('setup'); });
   $('resetScoreBtn').addEventListener('click', () => {
     if (!confirm('모든 팀 점수와 기록을 지우고, 모든 선수를 다시 뽑을 수 있게 할까요?')) return;
-    state.teams.forEach((t) => { t.score = 0; t.played = 0; });
+    state.teams.forEach((t) => { t.score = 0; t.played = 0; t.games = 0; });
     state.round = 1;
     state.recs = {};
     state.history = [];
@@ -932,9 +1029,9 @@ function bind() {
     if (e.target.matches('input, textarea, select')) return;
     if (e.code === 'Space') {
       e.preventDefault();
-      if (state.screen === 'lobby') { if (state.next) startMatch(); else $('roundBtn')?.click(); }
+      if (state.screen === 'lobby') { if (state.next) spinAndStart(); else $('roundBtn')?.click(); }
       else if (state.screen === 'result') $('nextBtn').click();
-    } else if (e.code === 'KeyR' && state.screen === 'lobby') drawNext();
+    } else if (e.code === 'KeyR' && state.screen === 'lobby' && !state.spinning) drawNext();
     else if (e.code === 'Escape' && state.screen === 'play') abortMatch();
   });
 }

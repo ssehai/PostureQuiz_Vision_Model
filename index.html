@@ -42,6 +42,7 @@
       <div class="row">
         <label>게임 모드
           <select id="mode">
+            <option value="random">🎰 돌림판 (매 판 무작위)</option>
             <option value="dance">💃 댄스 얼음땡</option>
             <option value="balloon">🎈 풍선 터뜨리기</option>
             <option value="wall">🧱 벽 통과하기</option>
@@ -112,6 +113,14 @@
         <button id="drawBtn">🎲 다시 뽑기 <kbd>R</kbd></button>
         <button id="fightBtn" class="primary">대결 시작! <kbd>Space</kbd></button>
       </div>
+    </div>
+  </section>
+
+  <!-- 게임 돌림판 -->
+  <section id="roulette" class="screen hidden">
+    <div class="card roulette-card">
+      <div id="rouletteTitle" class="result-title"></div>
+      <canvas id="wheel" width="520" height="520"></canvas>
     </div>
   </section>
 
