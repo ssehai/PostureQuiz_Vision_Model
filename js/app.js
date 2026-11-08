@@ -4,6 +4,7 @@ import { PlayerJudge, DIFFICULTY } from './judge.js';
 import { CameraTracker, listCameras } from './tracker.js';
 import { SimTracker } from './sim.js';
 import { sfx } from './sound.js';
+import { DANCES, danceAt } from './dances.js';
 
 const $ = (id) => document.getElementById(id);
 const TEAM_PRESETS = [
@@ -16,10 +17,17 @@ const SIDE_COLORS = ['#ffd84d', '#4de1ff'];
 const COUNTDOWN = 3;   // 시작 카운트다운(초)
 const PREP = 3.5;      // 새 자세로 바꾸는 준비 시간(초), 이 동안은 판정 안 함
 const STORE_KEY = 'posequiz-v1';
+// 댄스 얼음땡 모드
+const DANCE_MIN = 6, DANCE_MAX = 10; // 몇 초 춤춘 뒤 멈출지 (그 사이 무작위)
+const FREEZE_GRACE = 1.5;            // 멈춘 직후 자세를 잡는 시간 (판정 안 함)
+const FREEZE_HOLD = 4;               // 얼음 버티기 판정 시간
+const FREEZE_BONUS = 30;             // 생명을 잃지 않고 버티면 받는 점수
+const FOLLOW_WINDOW = 0.7;           // 춤 채점 시 허용하는 따라 하기 지연(초)
+const rand = (a, b) => a + Math.random() * (b - a);
 
 // ---------------- 상태 ----------------
 const state = {
-  settings: { teamCount: 2, lives: 3, roundSec: 60, poseSec: 15, difficulty: 'normal', model: 'lite', cameraId: '' },
+  settings: { teamCount: 2, lives: 3, roundSec: 60, poseSec: 15, difficulty: 'normal', model: 'lite', cameraId: '', mode: 'dance' },
   teams: TEAM_PRESETS.map((t) => ({ ...t, membersText: '', score: 0, played: 0, done: [] })),
   history: [],
   screen: 'setup',
@@ -72,7 +80,8 @@ function show(screen) {
 // ---------------- 설정 화면 ----------------
 function renderSetup() {
   const s = state.settings;
-  for (const k of ['teamCount', 'lives', 'roundSec', 'poseSec', 'difficulty', 'model']) $(k).value = String(s[k]);
+  for (const k of ['mode', 'teamCount', 'lives', 'roundSec', 'poseSec', 'difficulty', 'model']) $(k).value = String(s[k]);
+  $('poseSecLabel').classList.toggle('hidden', s.mode === 'dance');
   const box = $('teams');
   box.innerHTML = '';
   activeTeams().forEach((t, i) => {
@@ -88,6 +97,7 @@ function renderSetup() {
 }
 function readSetup() {
   const s = state.settings;
+  s.mode = $('mode').value;
   s.teamCount = +$('teamCount').value;
   s.lives = +$('lives').value;
   s.roundSec = +$('roundSec').value;
@@ -227,7 +237,17 @@ function startMatch() {
   sfx.unlock();
   const s = state.settings;
   const segs = Math.ceil(s.roundSec / s.poseSec);
+  const dance = s.mode === 'dance' ? DANCES[Math.floor(Math.random() * DANCES.length)] : null;
   state.match = {
+    mode: s.mode,
+    dance,
+    clock: 0,          // 춤 시계 (얼음 동안은 멈춤)
+    sub: 'dance',      // dance | freeze
+    nextFreezeAt: rand(DANCE_MIN, DANCE_MAX),
+    freezeT: 0,
+    freezeHit: [false, false],
+    hist: [],          // 최근 춤 자세 {t, pose}
+    lastStep: -1,
     sides: state.next.sides,
     judges: [new PlayerJudge(s.lives), new PlayerJudge(s.lives)],
     poses: makePoseOrder(segs),
@@ -238,9 +258,11 @@ function startMatch() {
     lastCount: null,
     elapsed: 0,
   };
-  state.match.pose = state.match.poses[0];
+  state.match.pose = dance ? danceAt(dance, 0).pose : state.match.poses[0];
+  $('hud').classList.toggle('dance', !!dance);
+  $('hud').classList.remove('frozen');
   buildPanels();
-  setPoseCard(state.match.pose);
+  if (dance) setDanceCard(); else setPoseCard(state.match.pose);
   show('play');
 }
 
@@ -250,7 +272,7 @@ function buildPanels() {
     el.style.borderColor = SIDE_COLORS[i];
     el.classList.remove('out');
     el.innerHTML = `<div class="pcol">
-        <div class="who"><span class="pname">${esc(side.member)}</span><span class="pteam" style="color:${side.team.color}">● ${esc(side.team.name)}</span></div>
+        <div class="who"><span class="pname">${esc(side.member)}</span><span class="pteam" style="color:${side.team.color}">● ${esc(side.team.name)}</span><span class="pscore"></span></div>
         <div class="hearts"></div>
         <div class="status"></div>
       </div>
@@ -262,7 +284,10 @@ function buildPanels() {
   });
 }
 
-const STATUS_TEXT = { ok: '좋아요! 그대로! 🧊', wobble: '흔들려요! 😵', pose: '자세를 맞춰요! 👀', missing: '온몸이 보이게! 🙈', wait: '' };
+const STATUS_TEXT = {
+  ok: '좋아요! 그대로! 🧊', wobble: '흔들려요! 😵', pose: '자세를 맞춰요! 👀', missing: '온몸이 보이게! 🙈', wait: '',
+  great: '완벽해요! 🔥', good: '좋아요! 👍', follow: '춤을 따라 춰요! 💃',
+};
 
 function updatePanels(judging) {
   const m = state.match, diff = DIFFICULTY[state.settings.difficulty];
@@ -279,10 +304,14 @@ function updatePanels(judging) {
     wf.style.background = j.wobble > diff.wobble ? 'var(--bad)' : 'var(--good)';
     el.querySelector('.wval').textContent = j.wobble > diff.wobble ? '!!' : 'OK';
     el.querySelector('.danger').style.width = `${Math.round(j.danger * 100)}%`;
+    el.querySelector('.pscore').textContent = m.mode === 'dance' ? `${Math.floor(j.score)}점` : '';
     const st = el.querySelector('.status');
-    const status = j.lives <= 0 ? 'out' : !judging && j.status !== 'missing' ? 'wait' : j.status;
+    const dancing = m.mode === 'dance' && m.sub === 'dance';
+    const status = j.lives <= 0 ? 'out' : dancing ? j.status : !judging && j.status !== 'missing' ? 'wait' : j.status;
     st.className = `status ${status}`;
-    st.textContent = status === 'out' ? '탈락 💧' : status === 'wait' ? (j.match >= diff.match ? '준비 완료! 👍' : '자세를 바꿔요!') : STATUS_TEXT[status];
+    st.textContent = status === 'out' ? '탈락 💧'
+      : status === 'wait' ? (m.mode === 'dance' ? '얼음! 그대로 멈춰요! 🧊' : j.match >= diff.match ? '준비 완료! 👍' : '자세를 바꿔요!')
+      : STATUS_TEXT[status];
   });
 }
 
@@ -307,7 +336,7 @@ function tickMatch(now, dt, people) {
     m.judges.forEach((j, i) => { j.observe(people[i], dt, aspect()); j.step(dt, m.pose, diff, false, since); });
     $('roundTime').textContent = s.roundSec;
     $('poseBar').style.width = '0%';
-    $('posePhase').textContent = '곧 시작해요! 자세를 잡아요';
+    $('posePhase').textContent = m.mode === 'dance' ? '곧 춤이 시작돼요! 🎵' : '곧 시작해요! 자세를 잡아요';
     updatePanels(false);
     if (since >= COUNTDOWN) { m.phase = 'play'; m.tPlay = now; setTimeout(hideBig, 700); }
     return;
@@ -316,6 +345,7 @@ function tickMatch(now, dt, people) {
   if (m.phase !== 'play') return;
   const t = (now - m.tPlay) / 1000;
   m.elapsed = t;
+  if (m.mode === 'dance') { tickDance(t, dt, people); return; }
   const seg = Math.min(m.poses.length - 1, Math.floor(t / s.poseSec));
   if (seg !== m.poseIdx) {
     m.poseIdx = seg;
@@ -347,6 +377,78 @@ function tickMatch(now, dt, people) {
   if (outs[0] || outs[1] || t >= s.roundSec) finishMatch(outs, t >= s.roundSec);
 }
 
+function setDanceCard() {
+  const m = state.match;
+  $('poseEmoji').textContent = m.sub === 'freeze' ? '🧊' : '💃';
+  $('poseName').textContent = m.sub === 'freeze' ? '얼음!' : m.dance.name;
+  $('poseHint').textContent = m.sub === 'freeze' ? '그 자세 그대로 멈춰요!' : '스켈레톤을 따라 춤춰요!';
+  $('hud').classList.toggle('frozen', m.sub === 'freeze');
+  drawGhostCard(m.pose, true);
+}
+
+function hitFx(i) {
+  sfx.hit();
+  const el = $(`panel${i}`);
+  el.classList.remove('hit'); void el.offsetWidth; el.classList.add('hit');
+}
+
+function tickDance(t, dt, people) {
+  const m = state.match, s = state.settings, diff = DIFFICULTY[s.difficulty];
+  m.judges.forEach((j, i) => { if (j.lives > 0) j.observe(people[i], dt, aspect()); });
+
+  if (m.sub === 'dance') {
+    m.clock += dt;
+    const st = danceAt(m.dance, m.clock);
+    m.pose = st.pose;
+    if (st.step !== m.lastStep) { m.lastStep = st.step; sfx.beat(); }
+    m.hist.push({ t, pose: st.pose });
+    while (m.hist.length && t - m.hist[0].t > FOLLOW_WINDOW) m.hist.shift();
+    const poses = m.hist.map((h) => h.pose);
+    m.judges.forEach((j) => { if (j.lives > 0) j.danceStep(dt, poses); });
+
+    // 예고 없이 멈추기: 정해 둔 시간이 지난 뒤, 알아보기 쉬운 동작에 도착한 순간
+    if (m.clock >= m.nextFreezeAt && st.holding && st.move.freeze && s.roundSec - t > FREEZE_GRACE + 1) {
+      m.sub = 'freeze';
+      m.freezeT = 0;
+      m.freezeHit = [false, false];
+      m.pose = st.move;
+      sfx.freeze();
+      big('얼음! 🧊', 900, '16vh');
+    }
+    $('poseBar').style.width = `${Math.min(100, (t / s.roundSec) * 100)}%`;
+    $('posePhase').textContent = '🎵 따라 출수록 점수가 올라가요';
+    updatePanels(false);
+  } else {
+    m.freezeT += dt;
+    const judging = m.freezeT >= FREEZE_GRACE;
+    m.judges.forEach((j, i) => {
+      if (j.lives <= 0) return;
+      if (j.step(dt, m.pose, diff, judging, t)) { m.freezeHit[i] = true; hitFx(i); }
+    });
+    const left = FREEZE_GRACE + FREEZE_HOLD - m.freezeT;
+    $('poseBar').style.width = `${Math.min(100, (m.freezeT / (FREEZE_GRACE + FREEZE_HOLD)) * 100)}%`;
+    $('posePhase').textContent = judging ? `버텨요! ${Math.ceil(left)}초` : '멈춰요! 그 자세 그대로!';
+    updatePanels(judging);
+    if (left <= 0) {
+      let anyBonus = false;
+      m.judges.forEach((j, i) => {
+        if (j.lives > 0 && !m.freezeHit[i]) { j.score += FREEZE_BONUS; j.freezeOK++; anyBonus = true; }
+      });
+      if (anyBonus) sfx.bonus();
+      m.sub = 'dance';
+      m.hist = [];
+      m.nextFreezeAt = m.clock + rand(DANCE_MIN, DANCE_MAX);
+      big(anyBonus ? `땡! 🎵 +${FREEZE_BONUS}` : '땡! 🎵', 900, '14vh');
+    }
+  }
+  setDanceCard();
+  $('roundTime').textContent = Math.max(0, Math.ceil(s.roundSec - t));
+
+  const outs = m.judges.map((j) => j.lives <= 0);
+  outs.forEach((o, i) => $(`panel${i}`).classList.toggle('out', o));
+  if (outs[0] || outs[1] || t >= s.roundSec) finishMatch(outs, t >= s.roundSec);
+}
+
 function finishMatch(outs, timeUp) {
   const m = state.match;
   m.phase = 'done';
@@ -354,10 +456,15 @@ function finishMatch(outs, timeUp) {
   let winner = -1, reason = '';
   if (outs[0] && outs[1]) { winner = -1; reason = '둘 다 동시에 생명을 모두 잃었어요'; }
   else if (outs[0] || outs[1]) { winner = outs[0] ? 1 : 0; reason = '상대가 생명을 모두 잃었어요'; }
+  else if (m.mode === 'dance') {
+    const sa = Math.floor(a.score), sb = Math.floor(b.score);
+    if (sa !== sb) { winner = sa > sb ? 0 : 1; reason = '시간 종료! 점수가 더 높아요'; }
+    else { winner = -1; reason = '시간 종료! 점수가 똑같아요'; }
+  }
   else if (a.lives !== b.lives) { winner = a.lives > b.lives ? 0 : 1; reason = '시간 종료! 남은 생명이 더 많아요'; }
   else if (Math.abs(a.okTime - b.okTime) >= 0.5) { winner = a.okTime > b.okTime ? 0 : 1; reason = '시간 종료! 생명이 같아서 바른 자세로 버틴 시간으로 판정'; }
   else { winner = -1; reason = '시간 종료! 완전 막상막하예요'; }
-  if (timeUp && winner === -1 && !outs[0] && !outs[1]) reason = '시간 종료! 완전 막상막하예요';
+  if (m.mode !== 'dance' && timeUp && winner === -1 && !outs[0] && !outs[1]) reason = '시간 종료! 완전 막상막하예요';
 
   const sides = m.sides;
   sides.forEach((sd) => { sd.team.played++; if (!sd.team.done.includes(sd.member)) sd.team.done.push(sd.member); });
@@ -375,8 +482,10 @@ function finishMatch(outs, timeUp) {
         return `<div class="rcol" style="background:${sd.team.color};${i === winner ? 'box-shadow:0 0 0 5px #ffd84d' : ''}">
           <div class="big">${esc(sd.member)}</div><div>${esc(sd.team.name)}</div>
           <div>남은 생명 ${'❤️'.repeat(j.lives) || '없음'}</div>
-          <div>바른 자세 ${j.okTime.toFixed(1)}초 · 평균 일치 ${Math.round(j.avgMatch * 100)}%</div>
-          ${i === winner ? '<div class="big">+1점</div>' : ''}</div>`;
+          ${m.mode === 'dance'
+            ? `<div class="big">${Math.floor(j.score)}점</div><div>얼음 성공 ${j.freezeOK}번 · 평균 일치 ${Math.round(j.avgMatch * 100)}%</div>`
+            : `<div>바른 자세 ${j.okTime.toFixed(1)}초 · 평균 일치 ${Math.round(j.avgMatch * 100)}%</div>`}
+          ${i === winner ? '<div class="big">팀 +1점</div>' : ''}</div>`;
       }).join('');
     show('result');
     if (winner >= 0) sfx.win();
@@ -457,22 +566,24 @@ function drawGhostOverlay(pose, anchor) {
   ctx.restore();
 }
 
-function drawGhostCard(pose) {
+function drawGhostCard(pose, fixed = false) {
   const c = $('ghost'), g = c.getContext('2d');
   g.clearRect(0, 0, c.width, c.height);
   const sk = pose.skeleton;
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
   for (const k in sk) { minX = Math.min(minX, sk[k].x); maxX = Math.max(maxX, sk[k].x); minY = Math.min(minY, sk[k].y); maxY = Math.max(maxY, sk[k].y); }
   minY -= 0.3; // 머리 여유
-  const pad = 16;
+  if (fixed) { minX = -2.0; maxX = 2.0; minY = -2.75; maxY = 1.75; } // 춤출 때 크기가 출렁이지 않게 고정
+  const pad = c.width * 0.08;
   const sc = Math.min((c.width - pad * 2) / (maxX - minX), (c.height - pad * 2) / (maxY - minY));
   const ox = c.width / 2 - ((minX + maxX) / 2) * sc, oy = c.height / 2 - ((minY + maxY) / 2) * sc;
   const P = (i) => ({ x: ox + sk[i].x * sc, y: oy + sk[i].y * sc });
-  g.lineCap = 'round'; g.strokeStyle = '#ff7a3d'; g.lineWidth = 9;
+  const frozen = fixed && state.match && state.match.sub === 'freeze';
+  g.lineCap = 'round'; g.strokeStyle = frozen ? '#2a9df4' : '#ff7a3d'; g.lineWidth = c.width * 0.05;
   for (const [a, b] of BONES) { const p = P(a), q = P(b); g.beginPath(); g.moveTo(p.x, p.y); g.lineTo(q.x, q.y); g.stroke(); }
-  for (const i of JOINTS) { const p = P(i); g.beginPath(); g.arc(p.x, p.y, 6, 0, Math.PI * 2); g.fillStyle = '#1d2433'; g.fill(); }
+  for (const i of JOINTS) { const p = P(i); g.beginPath(); g.arc(p.x, p.y, c.width * 0.032, 0, Math.PI * 2); g.fillStyle = '#1d2433'; g.fill(); }
   const n = P(LM.nose);
-  g.beginPath(); g.arc(n.x, n.y, 0.24 * sc, 0, Math.PI * 2); g.lineWidth = 7; g.stroke();
+  g.beginPath(); g.arc(n.x, n.y, 0.24 * sc, 0, Math.PI * 2); g.lineWidth = c.width * 0.04; g.stroke();
 }
 
 let lastNow = performance.now();
@@ -520,6 +631,7 @@ function frame(now) {
 // ---------------- 이벤트 ----------------
 function bind() {
   $('teamCount').addEventListener('change', () => { readSetup(); renderSetup(); });
+  $('mode').addEventListener('change', () => $('poseSecLabel').classList.toggle('hidden', $('mode').value === 'dance'));
   $('startBtn').addEventListener('click', () => startApp(false));
   $('simBtn').addEventListener('click', () => startApp(true));
   $('drawBtn').addEventListener('click', drawNext);

@@ -17,7 +17,7 @@
     <div class="topbar">
       <div class="round-timer"><span id="roundTime">60</span><small>초</small></div>
       <div class="pose-card">
-        <canvas id="ghost" width="180" height="200"></canvas>
+        <canvas id="ghost" width="360" height="400"></canvas>
         <div class="pose-info">
           <div class="pose-name"><span id="poseEmoji"></span> <span id="poseName"></span></div>
           <div class="pose-hint" id="poseHint"></div>
@@ -38,8 +38,11 @@
   <section id="setup" class="screen">
     <div class="card wide">
       <h1>⛄ 얼음! 자세 버티기</h1>
-      <p class="sub">화면 속 자세를 따라 하고, 흔들리지 않고 오래 버티는 사람이 이겨요!</p>
+      <p class="sub">화면 속 스켈레톤을 따라 하고, 멈추면 흔들리지 않고 버티세요!</p>
       <div class="row">
+        <label>게임 모드
+          <select id="mode"><option value="dance">💃 댄스 얼음땡</option><option value="hold">🧊 자세 버티기</option></select>
+        </label>
         <label>팀 수
           <select id="teamCount"><option>2</option><option>3</option><option>4</option></select>
         </label>
@@ -49,7 +52,7 @@
         <label>대결 시간
           <select id="roundSec"><option value="30">30초</option><option value="45">45초</option><option value="60">60초</option><option value="90">90초</option></select>
         </label>
-        <label>자세 바뀌는 간격
+        <label id="poseSecLabel">자세 바뀌는 간격
           <select id="poseSec"><option value="10">10초</option><option value="15">15초</option><option value="20">20초</option></select>
         </label>
         <label>난이도

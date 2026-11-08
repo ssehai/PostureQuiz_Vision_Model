@@ -123,12 +123,24 @@ export function mirrorAngles(ang) {
   return out;
 }
 
-// 자세마다 목표 각도(원본/좌우반전) 미리 계산
-for (const p of POSES) {
-  p.skeleton = buildSkeleton(p);
-  p.target = computeAngles(p.skeleton);
-  p.targetMirror = mirrorAngles(p.target);
+// 팔다리 방향 정의(spec)에 그림용 좌표와 목표 각도(원본/좌우반전)를 붙인다
+export function makePose(spec) {
+  spec.skeleton = buildSkeleton(spec);
+  spec.target = computeAngles(spec.skeleton);
+  spec.targetMirror = mirrorAngles(spec.target);
+  return spec;
 }
+
+// 두 자세 사이를 k(0~1)만큼 보간한 새 자세 (춤 애니메이션용)
+export function lerpPose(a, b, k) {
+  const mix = (x, y) => x.map((v, i) => v + (y[i] - v) * k);
+  return makePose({
+    L: { a: mix(a.L.a, b.L.a), g: mix(a.L.g, b.L.g) },
+    R: { a: mix(a.R.a, b.R.a), g: mix(a.R.g, b.R.g) },
+  });
+}
+
+for (const p of POSES) makePose(p);
 
 // 유사도 0~1. 관절별 오차가 tol 이내면 만점, tol+falloff에서 0점.
 // 평균만 쓰면 한두 관절이 크게 틀려도 통과하므로, 가장 많이 틀린 2개 관절 점수를 섞는다.

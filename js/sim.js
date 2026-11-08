@@ -10,8 +10,8 @@ export class SimTracker {
     this.t0 = performance.now();
     this.getPose = () => null; // 앱이 현재 목표 자세를 알려줌
     this.players = [
-      { cx: 0.27, wobbly: false, pose: NEUTRAL, since: 0 },
-      { cx: 0.73, wobbly: true, pose: NEUTRAL, since: 0 },
+      { cx: 0.27, wobbly: false, pose: NEUTRAL, hist: [] },
+      { cx: 0.73, wobbly: true, pose: NEUTRAL, hist: [] },
     ];
   }
   async start() {}
@@ -24,9 +24,11 @@ export class SimTracker {
     const target = this.getPose() || NEUTRAL;
     const aspect = this.width / this.height;
     return this.players.map((pl, idx) => {
-      // 목표 자세가 바뀌면 1.2초 뒤에 따라 함
-      if (pl.want !== target) { pl.want = target; pl.since = t; }
-      if (t - pl.since > 1.2 + idx * 0.4) pl.pose = target;
+      // 화면의 목표 자세를 조금 늦게(사람처럼) 따라 함
+      const lag = 0.35 + idx * 0.25;
+      pl.hist.push({ t, pose: target });
+      while (pl.hist.length > 1 && pl.hist[1].t <= t - lag) pl.hist.shift();
+      if (pl.hist[0].t <= t - lag) pl.pose = pl.hist[0].pose;
       const sk = buildSkeleton(pl.pose);
       // 오른쪽 선수는 주기적으로 크게 흔들림
       const burst = pl.wobbly && Math.sin(t * 0.55) > 0.55;

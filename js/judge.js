@@ -45,6 +45,25 @@ export class PlayerJudge {
     this.status = 'wait';   // ok | wobble | pose | missing | wait
     this.matchSum = 0; this.matchN = 0; this.okTime = 0;
     this.lastHit = -1;
+    this.score = 0;         // 댄스 모드 점수
+    this.freezeOK = 0;      // 댄스 모드: 생명을 잃지 않고 버틴 '얼음' 횟수
+  }
+
+  // 댄스 모드의 춤추는 구간. poses = 최근 0.7초 동안 화면에 나온 춤 자세들.
+  // 사람은 화면을 보고 따라 하느라 조금 늦으므로, 그중 가장 비슷한 자세로 채점한다.
+  // 반환값: 이번 프레임 춤 품질 0~1
+  danceStep(dt, poses) {
+    this.invincible = Math.max(0, this.invincible - dt);
+    this.danger = Math.max(0, this.danger - dt * 0.8);
+    let best = 0;
+    if (this.visible && this.angles) for (const p of poses) best = Math.max(best, poseSimilarity(this.angles, p));
+    this.match = best;
+    const seen = this.visible && this.fullBody;
+    this.status = !seen ? 'missing' : best >= 0.8 ? 'great' : best >= 0.6 ? 'good' : 'follow';
+    const q = seen ? Math.max(0, Math.min(1, (best - 0.4) / 0.45)) : 0;
+    this.score += dt * 10 * q;
+    this.matchSum += best; this.matchN++;
+    return q;
   }
 
   // 새 프레임의 랜드마크 반영 (lms: 화면 기준 0~1 좌표, 이미 거울 반전된 값)

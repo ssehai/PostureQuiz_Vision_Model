@@ -133,3 +133,13 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 #camera { max-width: 260px; }
 .mode-info { font-size: 16px; color: var(--muted); margin: 10px 0 0; }
 .mode-info.sim { color: #c0571f; }
+
+/* ---------- 댄스 얼음땡: 가운데 위쪽 큰 춤 카드 ---------- */
+#hud.dance .pose-card { flex-direction: column; gap: 6px; padding: 12px 16px 12px; text-align: center; border: 5px solid transparent; transition: border-color .2s, background .2s; }
+#hud.dance #ghost { width: min(27vh, 24vw, 240px); height: min(30vh, 27vw, 266px); }
+#hud.dance .pose-name { font-size: 28px; }
+#hud.dance .pose-hint { font-size: 15px; margin-bottom: 4px; }
+#hud.dance .bar { min-width: 0; width: 100%; }
+#hud.dance.frozen .pose-card { border-color: #2a9df4; background: #e9f6ff; }
+#hud.dance.frozen #ghost { background: #d4ecff; }
+.player-panel .pscore { margin-left: auto; font-size: 34px; color: #ffd84d; }

@@ -23,5 +23,8 @@ export const sfx = {
   go: () => { tone(880, 0.12, 'square', 0.12); tone(1320, 0.25, 'square', 0.12, 0.12); },
   hit: () => { tone(220, 0.25, 'sawtooth', 0.16); tone(150, 0.3, 'sawtooth', 0.12, 0.1); },
   change: () => { tone(523, 0.1, 'triangle'); tone(784, 0.18, 'triangle', 0.18, 0.1); },
+  beat: () => tone(110, 0.12, 'sine', 0.28),
+  freeze: () => { tone(1568, 0.12, 'square', 0.12); tone(1175, 0.12, 'square', 0.12, 0.1); tone(784, 0.3, 'square', 0.12, 0.2); },
+  bonus: () => { tone(988, 0.1, 'triangle', 0.16); tone(1319, 0.2, 'triangle', 0.16, 0.08); },
   win: () => [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.25, 'triangle', 0.2, i * 0.14)),
 };
