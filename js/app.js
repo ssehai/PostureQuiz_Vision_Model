@@ -1,4 +1,4 @@
-// 얼음! 자세 버티기 - 메인 게임 흐름
+// 내 몸이 컨트롤러! AI 바디 배틀 - 메인 게임 흐름
 import { BONES, JOINTS, LM } from './poses.js';
 import { DIFFICULTY, seenLm, extendLegs } from './judge.js';
 import { CameraTracker, listCameras } from './tracker.js';
