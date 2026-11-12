@@ -71,31 +71,6 @@ function readBody(lms, W, H) {
   const sh = mid(P(LM.lShoulder), P(LM.rShoulder)), hp = mid(P(LM.lHip), P(LM.rHip));
   return { lms, P, ok, est, sh, hp, torso: Math.max(20, dist(sh, hp)) };
 }
-// 팔 마디들: [어깨-팔꿈치], [팔꿈치-손목], [손목-손끝(추정)]
-function armSegments(b) {
-  const segs = [];
-  for (const [s, e, w] of [[LM.lShoulder, LM.lElbow, LM.lWrist], [LM.rShoulder, LM.rElbow, LM.rWrist]]) {
-    if (!b.ok(s) || !b.ok(e)) continue;
-    const S = b.P(s), E = b.P(e);
-    segs.push([S, E]);
-    if (!b.ok(w)) continue;
-    const Wr = b.P(w);
-    segs.push([E, Wr]);
-    segs.push([Wr, { x: Wr.x + (Wr.x - E.x) * 0.35, y: Wr.y + (Wr.y - E.y) * 0.35 }]);
-  }
-  return segs;
-}
-function handTips(b) {
-  const out = [];
-  for (const [e, w] of [[LM.lElbow, LM.lWrist], [LM.rElbow, LM.rWrist]]) {
-    if (!b.ok(w)) continue;
-    const Wr = b.P(w);
-    out.push(Wr);
-    if (b.ok(e)) { const E = b.P(e); out.push({ x: Wr.x + (Wr.x - E.x) * 0.3, y: Wr.y + (Wr.y - E.y) * 0.3 }); }
-  }
-  return out;
-}
-
 class Base {
   constructor(o) {
     this.o = o;
@@ -729,49 +704,80 @@ class Race extends Base {
 // ---------------- 🧤 골키퍼 ----------------
 // 공이 멀리서 휘어지며 날아온다. 어디로 떨어질지는 미리 표시하지 않고, 지나온 궤적(꼬리)만 보여 준다.
 // 공이 몸 가까이 왔을 때(비행 후반) 손·팔에 닿으면 막는다. 몸통·머리·다리로는 못 막는다.
+// 스켈레톤은 1P·2P 같은 크기(고정)로 그리고, 위치는 실제로 움직인 만큼(몸통 길이 단위) 따라간다.
+// 좌표 '월드'는 몸통 길이 단위: x = 내 절반의 가운데에서 떨어진 거리, y = 평소 엉덩이 높이에서 떨어진 거리.
 const BLOCK_FROM = 0.82; // 비행의 이 지점부터 막을 수 있음 (몸 가까이 왔을 때만)
 const GK_SLOW = 1.8, GK_FAST = 0.75, GK_RAMP = 0.026; // 공 비행 시간(초): 시작 → 최소, 1초마다 줄어드는 양
-class Goalie extends Base {
+const GK_R = 0.22;        // 공 반지름 (몸통 길이 단위)
+class Goalie extends FixedBase {
   constructor(o) {
     super(o);
     this.sides = [0, 1].map(() => ({ r: rng(this.seed), ball: null, nextAt: 1.2, saves: 0, goals: 0 }));
+    this.fb.forEach((f) => { f.ox = 0; });
   }
   // 공이 날아오는 시간: 처음 1.8초로 느긋하게 → 40초쯤 0.75초까지 점점 빨라진다 (두 선수 같음)
   dur(t) { return Math.max(GK_FAST, GK_SLOW - t * GK_RAMP); }
   gap(t) { return Math.max(0.4, 0.8 - t * 0.01); } // 공과 공 사이 쉬는 시간도 처음엔 넉넉하게
+  // 월드 범위 (내 절반 안)
+  bounds(W, H) {
+    const S = H * FIX_S;
+    return { x: (W / 4) / S, top: (0 - H * FIX_Y) / S, bot: (H - H * FIX_Y) / S };
+  }
+  // 스켈레톤(엉덩이 기준 좌표)은 옆으로 움직인 만큼 ox를 더해 그린다
+  toScreen(i, W, H, x, y) { return super.toScreen(i, W, H, x + this.fb[i].ox, y); }
+  world(i, W, H, x, y) { return super.toScreen(i, W, H, x, y); } // 공은 월드 좌표 그대로
   pos(ball, k) { // 2차 베지어 곡선 (휘어지는 슛)
     const a = (1 - k) ** 2, b = 2 * (1 - k) * k, c = k * k;
     return { x: a * ball.sx + b * ball.cx + c * ball.tx, y: a * ball.sy + b * ball.cy + c * ball.ty };
   }
-  radius(ball, k) { return ball.R * (0.35 + 0.65 * k * k); }
-  blocked(b, pt, r) {
-    const reach = r + b.torso * 0.03;
-    return armSegments(b).some(([a, c]) => segDist(pt, a, c) < reach);
+  radius(ball, k) { return GK_R * (0.35 + 0.65 * k * k); }
+  // 팔 마디(어깨-팔꿈치, 팔꿈치-손목, 손목-손끝)를 월드 좌표로
+  armsWorld(i) {
+    const n = this.fb[i].n, ox = this.fb[i].ox, segs = [];
+    if (!n) return segs;
+    const P = (k) => ({ x: n[k].x + ox, y: n[k].y });
+    for (const [s, e, w] of [[LM.lShoulder, LM.lElbow, LM.lWrist], [LM.rShoulder, LM.rElbow, LM.rWrist]]) {
+      if (!n[s].ok || !n[e].ok) continue;
+      const S = P(s), E = P(e);
+      segs.push([S, E]);
+      if (!n[w].ok) continue;
+      const Wr = P(w);
+      segs.push([E, Wr], [Wr, { x: Wr.x + (Wr.x - E.x) * 0.35, y: Wr.y + (Wr.y - E.y) * 0.35 }]);
+    }
+    return segs;
   }
+  blocked(i, pt, r) { return this.armsWorld(i).some(([a, c]) => segDist(pt, a, c) < r + 0.03); }
   tick(t, dt, people, W, H, playing) {
     this.observe(people, W, H, dt);
+    this.observeFixed(dt);
+    const B = this.bounds(W, H);
+    // 옆으로 움직인 거리 (몸통 길이 단위) → 고정 크기 스켈레톤도 그만큼 옆으로
+    this.players.forEach((p, i) => {
+      const f = this.fb[i];
+      if (p.b && f.cal) f.ox = clamp((p.b.hp.x - (i * W / 2 + W / 4)) / f.cal.torso, -B.x + 0.8, B.x - 0.8);
+    });
     if (!playing) return;
     this.t = t;
     this.sides.forEach((sd, i) => {
-      const p = this.players[i];
+      const p = this.players[i], f = this.fb[i];
       if (p.lives <= 0) { sd.ball = null; return; }
       if (!sd.ball && t >= sd.nextAt) {
         const u = [sd.r(), sd.r(), sd.r(), sd.r()];
-        const b = p.b;
-        if (!b) { sd.nextAt = t + 0.5; return; }
-        const T = b.torso;
+        if (!f.n) { sd.nextAt = t + 0.5; return; }
+        // 목표: 그쪽 어깨에서 이 선수 팔 길이의 60~105% (팔을 쭉 뻗어야 닿는 거리)
+        const { arm, shw } = f.reach;
+        const n = f.n, shc = { x: (n[LM.lShoulder].x + n[LM.rShoulder].x) / 2 + f.ox, y: (n[LM.lShoulder].y + n[LM.rShoulder].y) / 2 };
         const phi = (u[0] * 2 - 1) * 2.2;
-        const d = T * (0.95 + u[1] * 0.6); // 팔을 쭉 뻗어야 닿는 거리
-        const m = T * 0.3, x0 = i * W / 2;
-        const tx = clamp(b.sh.x + Math.sin(phi) * d, x0 + m, x0 + W / 2 - m);
-        const ty = clamp(b.sh.y - Math.cos(phi) * d, m, H - m);
-        const sx = x0 + W / 4 + (u[2] - 0.5) * W * 0.3, sy = H * 0.04;
+        const d = arm * (0.6 + u[1] * 0.45);
+        const tx = clamp(shc.x + Math.sign(Math.sin(phi)) * shw + Math.sin(phi) * d, -B.x + 0.3, B.x - 0.3);
+        const ty = clamp(shc.y - Math.cos(phi) * d, B.top + 0.4, B.bot - 0.3);
+        const sx = (u[2] - 0.5) * 3.2, sy = B.top + 0.25;
         // 휘는 방향과 정도 (가운데를 옆으로 밀어서 곡선을 만든다)
-        const bend = (u[3] < 0.5 ? -1 : 1) * (0.12 + Math.abs(u[3] - 0.5) * 0.4) * W; // 항상 크게 휜다
+        const bend = (u[3] < 0.5 ? -1 : 1) * (1.3 + Math.abs(u[3] - 0.5) * 4.3); // 항상 크게 휜다
         sd.ball = {
           sx, sy, tx, ty,
-          cx: clamp((sx + tx) / 2 + bend, x0, x0 + W / 2), cy: Math.min(sy, ty) + (ty - sy) * 0.3 - H * 0.08,
-          R: T * 0.22, p: 0, dur: this.dur(t), state: 'fly', after: 0, trail: [], ex: tx, ey: ty,
+          cx: clamp((sx + tx) / 2 + bend, -B.x, B.x), cy: Math.min(sy, ty) + (ty - sy) * 0.3 - 0.5,
+          p: 0, dur: this.dur(t), state: 'fly', after: 0, trail: [], ex: tx, ey: ty,
         };
         sfx.kick();
       }
@@ -782,14 +788,16 @@ class Goalie extends Base {
         const pt = this.pos(ball, ball.p);
         ball.trail.push(pt);
         if (ball.trail.length > 16) ball.trail.shift();
-        if (ball.p >= BLOCK_FROM && p.b && this.blocked(p.b, pt, this.radius(ball, ball.p))) {
+        if (ball.p >= BLOCK_FROM && this.blocked(i, pt, this.radius(ball, ball.p))) {
           ball.state = 'saved'; ball.ex = pt.x; ball.ey = pt.y;
           sd.saves++; p.score++;
-          this.pop(pt.x, pt.y, '막았다! 🧤', GOOD);
+          const sc = this.world(i, W, H, pt.x, pt.y);
+          this.pop(sc.x, sc.y, '막았다! 🧤', GOOD);
           sfx.save();
         } else if (ball.p >= 1) {
           ball.state = 'goal';
-          if (p.everSeen) { sd.goals++; this.hurt(i, '골을 먹었어요', ball.tx, ball.ty, true); sfx.boom(); } // 무적 중이어도 골은 무조건 -1
+          const sc = this.world(i, W, H, ball.tx, ball.ty);
+          if (p.everSeen) { sd.goals++; this.hurt(i, '골을 먹었어요', sc.x, sc.y, true); sfx.boom(); } // 무적 중이어도 골은 무조건 -1
         }
       } else {
         ball.after += dt;
@@ -799,14 +807,17 @@ class Goalie extends Base {
     });
   }
   draw(ctx, W, H) {
+    const S = H * FIX_S;
     this.sides.forEach((sd, i) => {
+      this.drawBackdrop(ctx, W, H, i);
+      this.drawFixedSkeleton(ctx, W, H, i, false);
       const ball = sd.ball;
       if (!ball) return;
       // 지나온 궤적 (꼬리)
       ball.trail.forEach((pt, k) => {
-        const f = (k + 1) / ball.trail.length;
+        const f = (k + 1) / ball.trail.length, c = this.world(i, W, H, pt.x, pt.y);
         ctx.beginPath();
-        ctx.arc(pt.x, pt.y, ball.R * 0.35 * f + 2, 0, Math.PI * 2);
+        ctx.arc(c.x, c.y, GK_R * S * 0.35 * f + 2, 0, Math.PI * 2);
         ctx.fillStyle = `rgba(255,255,255,${0.45 * f})`;
         ctx.fill();
       });
@@ -816,13 +827,14 @@ class Goalie extends Base {
         r = this.radius(ball, ball.p);
       } else {
         const k = ball.after / 0.5;
-        const dir = ball.state === 'saved' ? (ball.ex < i * W / 2 + W / 4 ? -1 : 1) : 0;
-        x = ball.ex + dir * k * W * 0.12;
-        y = ball.ey - (ball.state === 'saved' ? k * H * 0.15 : 0);
-        r = ball.R * (ball.state === 'saved' ? 1 - k * 0.5 : 1 + k * 0.3);
+        const dir = ball.state === 'saved' ? (ball.ex < 0 ? -1 : 1) : 0;
+        x = ball.ex + dir * k * 1.2;
+        y = ball.ey - (ball.state === 'saved' ? k * 0.9 : 0);
+        r = GK_R * (ball.state === 'saved' ? 1 - k * 0.5 : 1 + k * 0.3);
         a = 1 - k;
       }
-      emoji(ctx, '⚽', x, y, r * 2, a);
+      const c = this.world(i, W, H, x, y);
+      emoji(ctx, '⚽', c.x, c.y, r * S * 2, a);
     });
     this.drawFx(ctx, W, H);
   }
@@ -830,11 +842,11 @@ class Goalie extends Base {
   scoreText(i) { return `${this.sides[i].saves}번 막음`; }
   phaseText() { return `공 속도 ×${(GK_SLOW / this.dur(this.t || 0)).toFixed(1)} · 손·팔로만 막아요! 점점 빨라져요`; }
   simPose() {
-    const ball = this.sides[0].ball, p = this.players[0];
+    const ball = this.sides[0].ball, f = this.fb[0], n = f.n;
     const rest = { a: [15, 10], g: [3, 2] };
-    if (!ball || ball.state !== 'fly' || !p.b) return { L: rest, R: rest };
+    if (!ball || ball.state !== 'fly' || !n) return { L: rest, R: rest };
     const pt = this.pos(ball, Math.min(1, ball.p + 0.3));
-    const dx = pt.x - p.b.sh.x, dy = pt.y - p.b.sh.y;
+    const dx = pt.x - ((n[LM.lShoulder].x + n[LM.rShoulder].x) / 2 + f.ox), dy = pt.y - (n[LM.lShoulder].y + n[LM.rShoulder].y) / 2;
     const deg = 180 - Math.abs((Math.atan2(dx, -dy) * 180) / Math.PI); // 0 = 아래, 180 = 위
     const arm = { a: [deg, deg], g: [3, 2] };
     return dx < 0 ? { L: arm, R: rest } : { L: rest, R: arm };
