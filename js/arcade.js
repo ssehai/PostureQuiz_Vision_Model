@@ -12,7 +12,7 @@ const SIDE_COLORS = ['#ffd84d', '#4de1ff'];
 
 export const ARCADE_INFO = {
   dance:   { emoji: '💃', name: '막춤 얼음땡', hint: '크게 움직일수록 점수 UP! "얼음!" 하면 멈춰요' },
-  balloon: { emoji: '🎈', name: '풍선 터뜨리기', hint: '풍선은 손발로 펑! 폭탄 💣은 피해요!' },
+  balloon: { emoji: '🎈', name: '풍선 터뜨리기', hint: '움직이는 풍선을 쫓아가 펑! 폭탄 💣은 피해요!' },
   wall:    { emoji: '🧱', name: '벽 통과하기',   hint: '벽 구멍 모양대로 몸을 만들어요!' },
   race:    { emoji: '🏃', name: '제자리 달리기', hint: '무릎을 높이 들며 제자리에서 달려요!' },
   goalie:  { emoji: '🧤', name: '골키퍼',       hint: '휘어서 날아오는 공을 손·팔로만 막아요!' },
@@ -152,7 +152,8 @@ class FixedBase extends Base {
   constructor(o) {
     super(o);
     this.ownSkeleton = true;
-    this.fb = [0, 1].map(() => ({ samples: [], cal: null, calAt: 0, n: null, arms: [], shw: [], reach: { arm: 1.05, shw: 0.35 } }));
+    this.fb = [0, 1].map(() => ({ samples: [], cal: null, calAt: 0, n: null, arms: [], shw: [], reach: { arm: 1.05, shw: 0.35 }, ox: 0 }));
+    this.free = false; // true: 크기는 고정, 옆으로 움직인 만큼은 따라감 (풍선·골키퍼)
     this.now = 0;
   }
   // 몸이 보일 때마다 기준(평소 높이·몸통 길이)을 갱신하고, 고정 좌표 n을 만든다
@@ -197,9 +198,39 @@ class FixedBase extends Base {
     });
   }
   // 고정 좌표 → 화면 좌표
-  toScreen(i, W, H, x, y) {
+  // 스켈레톤(엉덩이 기준 좌표) → 화면. free면 옆으로 움직인 만큼(ox) 더한다
+  toScreen(i, W, H, x, y) { return this.world(i, W, H, x + (this.free ? this.fb[i].ox : 0), y); }
+  // '월드' 좌표(내 절반 가운데 기준, 몸통 길이 단위) → 화면. 풍선·공처럼 몸과 상관없이 놓인 물체용
+  world(i, W, H, x, y) {
     const S = H * FIX_S;
     return { x: i * W / 2 + W / 4 + x * S, y: H * FIX_Y + y * S };
+  }
+  // 월드 범위: 가로 ±x, 세로 top~bot (화면 맨 위~맨 아래)
+  bounds(W, H) {
+    const S = H * FIX_S;
+    return { x: (W / 4) / S, top: -(H * FIX_Y) / S, bot: (H - H * FIX_Y) / S };
+  }
+  // 옆으로 움직인 거리 (자기 몸통 길이 단위) → 고정 크기 스켈레톤도 그만큼 옆으로
+  followSideways(W, H) {
+    const B = this.bounds(W, H);
+    this.players.forEach((p, i) => {
+      const f = this.fb[i];
+      if (p.b && f.cal) f.ox = clamp((p.b.hp.x - (i * W / 2 + W / 4)) / f.cal.torso, -B.x + 0.8, B.x - 0.8);
+    });
+  }
+  // 손끝·발·머리를 월드 좌표로
+  limbPointsWorld(i) {
+    const n = this.fb[i].n, ox = this.free ? this.fb[i].ox : 0;
+    if (!n) return [];
+    const pts = [];
+    for (const [e, w] of [[LM.lElbow, LM.lWrist], [LM.rElbow, LM.rWrist]]) {
+      if (!n[w].ok) continue;
+      pts.push({ x: n[w].x + ox, y: n[w].y, head: false });
+      if (n[e].ok) pts.push({ x: n[w].x + (n[w].x - n[e].x) * 0.3 + ox, y: n[w].y + (n[w].y - n[e].y) * 0.3, head: false });
+    }
+    for (const a of [LM.lAnkle, LM.rAnkle]) if (n[a].show) pts.push({ x: n[a].x + ox, y: n[a].y, head: false }); // 추정한 발로도 찰 수 있음
+    if (n[LM.nose].ok) pts.push({ x: n[LM.nose].x + ox, y: n[LM.nose].y, head: true });
+    return pts;
   }
   // 카메라 영상은 흐리게 (고정된 내 스켈레톤이 잘 보이게) + 바닥선
   drawBackdrop(ctx, W, H, i) {
@@ -239,112 +270,117 @@ class FixedBase extends Base {
 }
 
 // ---------------- 🎈 풍선 / 💣 폭탄 ----------------
-// 풍선 위치는 고정 좌표(몸통 길이 단위)로 정해서 두 선수에게 완전히 같은 자리에 나온다.
-// 풍선은 작은 점에서 부풀어 오르다가 수명이 다하면 '펑' 터지며 사라진다. 부푸는 속도(=수명)는 풍선마다 무작위
-const B_LIFE_MIN = 1.6, B_LIFE_MAX = 3.0;
-const BOMB_LIFE = (B_LIFE_MIN + B_LIFE_MAX) / 2; // 폭탄은 풍선 수명의 평균으로 고정, 다 되면 터지며 사라짐
+// 스켈레톤 크기는 1P·2P 같게 고정하고, 옆으로 움직이는 건 따라간다 (내 쪽 화면 전체를 뛰어다니며 터뜨림).
+// 풍선 종류: 제자리에서 부풀다 터지는 풍선 / 아래에서 둥실 떠오르는 풍선 / 옆으로 휙 날아가는 풍선(작은 건 빠르고 +20점).
+// 두 선수에게 같은 순서·같은 움직임으로 나오고, 높이는 각자 팔 길이에 맞춘다.
+// 연속으로 터뜨리면 콤보 배율, 마지막 10초는 피버 타임 (풍선이 두 배로 쏟아지고 황금 풍선이 많아짐).
+const B_LIFE_MIN = 1.6, B_LIFE_MAX = 3.0;          // 제자리 풍선 수명 (부푸는 속도는 무작위)
+const BOMB_LIFE = (B_LIFE_MIN + B_LIFE_MAX) / 2;   // 폭탄은 풍선 수명의 평균으로 고정, 다 되면 터지며 사라짐
 const B_ARM = 0.3;    // 폭탄이 나타난 직후 이 시간 동안은 닿아도 안전 (피할 틈)
-const B_GROW0 = 0.12, B_GROW1 = 1.12; // 풍선 크기: 처음(점) → 터지기 직전 (B_R 배)
+const B_GROW0 = 0.12, B_GROW1 = 1.12; // 제자리 풍선 크기: 처음(점) → 터지기 직전 (B_R 배)
 const POP_FX = 0.3, BOOM_FX = 0.4;    // 터지는 효과가 보이는 시간 (짧게)
 const B_R = 0.22;     // 풍선 반지름 (몸통 길이 단위)
 const B_GAP = 1.05;   // 폭탄과 풍선 중심 사이 최소 거리 (풍선을 치다가 폭탄을 같이 건드리지 않게)
-const B_GAP_MIN = 0.75; // 팔이 짧으면 풍선 나올 자리가 좁아서 간격을 줄인다 (손 판정 반경 둘을 합친 0.72보다는 크게)
-const B_X = 1.85, B_TOP = -2.7, B_BOT = 1.7; // 풍선이 나올 수 있는 범위
+const COMBO_GAP = 1.5;  // 이 시간(초) 안에 다음 풍선을 터뜨리면 콤보 이어짐
+const FEVER_SEC = 10;   // 마지막 이 시간은 피버 타임
 
 class Balloon extends FixedBase {
   constructor(o) {
     super(o);
-    this.sides = [0, 1].map(() => ({ r: rng(this.seed), items: [], bursts: [], nextAt: 0.6, pops: 0, bombs: 0 }));
+    this.free = true;
+    this.sides = [0, 1].map(() => ({ r: rng(this.seed), items: [], bursts: [], nextAt: 0.6, pops: 0, bombs: 0, combo: 0, best: 0, lastPop: -9 }));
+    this.fever = false;
   }
-  interval(t) { return Math.max(0.45, 0.95 - t * 0.011); } // 점점 자주 나온다
-  // 풍선 크기 배율 (점 → 부풂). 폭탄은 처음부터 제 크기
+  interval(t) { return Math.max(0.45, 0.95 - t * 0.011) * (this.fever ? 0.5 : 1); } // 점점 자주, 피버 땐 두 배로
   scaleOf(it) {
     if (it.type === 'bomb') return 1;
+    if (it.motion !== 'static') return Math.min(1, it.age / 0.25) * (it.small ? 0.72 : 1);
     const k = clamp(it.age / it.life, 0, 1);
     return B_GROW0 + (B_GROW1 - B_GROW0) * Math.pow(k, 0.6);
   }
   burst(sd, it, kind) { sd.bursts.push({ x: it.x, y: it.y, kind, age: 0, size: this.scaleOf(it) }); }
-  // 손끝·발·머리 (고정 좌표)
-  hitPoints(i) {
-    const n = this.fb[i].n;
-    if (!n) return [];
-    const pts = [];
-    for (const [e, w] of [[LM.lElbow, LM.lWrist], [LM.rElbow, LM.rWrist]]) {
-      if (!n[w].ok) continue;
-      pts.push({ x: n[w].x, y: n[w].y, head: false });
-      if (n[e].ok) pts.push({ x: n[w].x + (n[w].x - n[e].x) * 0.3, y: n[w].y + (n[w].y - n[e].y) * 0.3, head: false });
-    }
-    for (const a of [LM.lAnkle, LM.rAnkle]) if (n[a].show) pts.push({ x: n[a].x, y: n[a].y, head: false }); // 추정한 발로도 찰 수 있음
-    if (n[LM.nose].ok) pts.push({ x: n[LM.nose].x, y: n[LM.nose].y, head: true });
-    return pts;
-  }
-  spawn(sd, i) {
-    const u = [sd.r(), sd.r(), sd.r(), sd.r(), sd.r(), sd.r()]; // 몸이 안 보여도 같은 개수를 뽑아 두 선수 순서를 맞춘다
-    if (!this.fb[i].n) return;
-    const type = u[0] < 0.22 ? 'bomb' : u[0] < 0.28 ? 'gold' : 'balloon';
-    const low = u[1] < 0.2; // 발로 찰 수 있는 낮은 곳
-    const hands = type === 'bomb' ? this.hitPoints(i) : [];
-    // 폭탄과 풍선이 겹치지 않게, 폭탄이 손·머리 위에 바로 생기지 않게: 안 겹치는 자리를 차례로 찾아본다
-    const gap = clamp(this.fb[i].reach.arm * 0.85, B_GAP_MIN, B_GAP);
-    let best = null, bestRoom = -Infinity;
-    for (let a = 0; a < 24; a++) {
-      let x, y;
-      const turn = (a % 2 ? -1 : 1) * Math.ceil(a / 2) * 0.55;
-      if (low) {
-        x = (u[2] < 0.5 ? -1 : 1) * (0.45 + u[3] * 0.5) + turn * 0.6;
-        y = 1.25 + u[4] * 0.35;
-      } else { // 그쪽 어깨에서 이 선수의 팔 길이 50~90% 거리 (팔 길이는 직접 잰 값 → 팔이 짧아도 닿는다)
-        const { arm, shw } = this.fb[i].reach;
-        const phi = (u[2] * 2 - 1) * 1.95 + turn;
-        const d = arm * (0.5 + ((u[3] + a * 0.37) % 1) * 0.4); // 다시 찾을 때는 거리도 바꿔 본다
-        x = Math.sign(Math.sin(phi)) * shw + Math.sin(phi) * d;
-        y = -1 - Math.cos(phi) * d;
+  mult(sd) { return 1 + 0.1 * Math.min(10, Math.max(0, sd.combo - 1)); } // 콤보 배율 최대 ×2
+  spawn(sd, i, W, H) {
+    const u = Array.from({ length: 8 }, () => sd.r()); // 몸이 안 보여도 같은 개수를 뽑아 두 선수 순서를 맞춘다
+    const f = this.fb[i];
+    if (!f.n) return;
+    const B = this.bounds(W, H), X = B.x - 0.4;
+    const type = this.fever ? (u[0] < 0.1 ? 'bomb' : u[0] < 0.35 ? 'gold' : 'balloon') : (u[0] < 0.2 ? 'bomb' : u[0] < 0.27 ? 'gold' : 'balloon');
+    const motion = type === 'bomb' ? 'static' : u[1] < 0.4 ? 'static' : u[1] < 0.7 ? 'rise' : 'fly';
+    const small = motion !== 'static' && u[7] < 0.3;
+    // 높이: 위로는 이 선수가 팔을 뻗어 닿는 곳까지, 아래로는 발 높이까지
+    const yTop = -(1 + f.reach.arm * 0.95 + 0.1), yBot = 1.45;
+    const life0 = B_LIFE_MIN + u[6] * (B_LIFE_MAX - B_LIFE_MIN);
+    const it = { type, motion, small, age: 0, bob: u[4] * 6, vx: 0, vy: 0 };
+    if (motion === 'rise') { // 아래에서 둥실 (좌우로 살랑)
+      it.x0 = it.x = -X + 2 * X * u[2]; it.y = B.bot + 0.3;
+      it.vy = -(1.3 + u[4] * 1.0) * (small ? 1.5 : 1);
+      it.life = (it.y - (B.top - 0.4)) / -it.vy;
+    } else if (motion === 'fly') { // 옆에서 휙
+      const dir = u[5] < 0.5 ? 1 : -1;
+      it.x = -dir * (B.x + 0.3); it.y = yTop + (yBot - 0.4 - yTop) * u[3];
+      it.vx = dir * (1.8 + u[4] * 1.2) * (small ? 1.5 : 1);
+      it.life = (2 * (B.x + 0.3)) / Math.abs(it.vx);
+    } else {
+      it.life = type === 'bomb' ? BOMB_LIFE : life0;
+      // 제자리 풍선·폭탄: 내 쪽 화면 어디든. 폭탄은 풍선·손·머리와 떨어진 자리를 찾는다
+      const hands = type === 'bomb' ? this.limbPointsWorld(i) : [];
+      let best = null, bestRoom = -Infinity;
+      for (let a = 0; a < 24; a++) {
+        const x = -X + 2 * X * ((u[2] + a * 0.37) % 1), y = yTop + (yBot - yTop) * ((u[3] + a * 0.61) % 1);
+        let room = Infinity;
+        for (const o of sd.items) if ((o.type === 'bomb') !== (type === 'bomb')) room = Math.min(room, Math.hypot(o.x - x, o.y - y) - B_GAP);
+        for (const h of hands) room = Math.min(room, Math.hypot(h.x - x, h.y - y) - B_R * 2.4);
+        if (room >= 0) { best = { x, y }; break; }
+        if (!best || room > bestRoom) { best = { x, y }; bestRoom = room; }
       }
-      x = clamp(x, -B_X, B_X); y = clamp(y, B_TOP, B_BOT);
-      // 여유 = 피해야 할 것(다른 종류 물체, 폭탄이면 손·머리)과의 거리가 기준보다 얼마나 넉넉한지
-      let room = Infinity;
-      for (const it of sd.items) if ((it.type === 'bomb') !== (type === 'bomb')) room = Math.min(room, Math.hypot(it.x - x, it.y - y) - gap);
-      for (const h of hands) room = Math.min(room, Math.hypot(h.x - x, h.y - y) - B_R * 2.4);
-      if (room >= 0) { best = { x, y }; break; }
-      if (!best || room > bestRoom) { best = { x, y }; bestRoom = room; }
+      it.x = best.x; it.y = best.y;
     }
-    // 빈자리를 못 찾아도 건너뛰지 않고 가장 넉넉한 자리에 낸다 → 팔이 짧아도 나오는 개수가 같다
-    const life = type === 'bomb' ? BOMB_LIFE : B_LIFE_MIN + u[5] * (B_LIFE_MAX - B_LIFE_MIN);
-    sd.items.push({ type, x: best.x, y: best.y, age: 0, life, bob: u[4] * 6 });
+    sd.items.push(it);
   }
-  tick(t, dt, people, W, H, playing) {
+  tick(t, dt, people, W, H, playing, total) {
     this.observe(people, W, H, dt);
     this.observeFixed(dt);
+    this.followSideways(W, H);
     if (!playing) return;
+    this.t = t;
+    if (!this.fever && total && total - t <= FEVER_SEC) { this.fever = true; this.events.push({ kind: 'fever' }); sfx.bonus(); }
     this.sides.forEach((sd, i) => {
       const p = this.players[i];
-      if (p.lives <= 0) { sd.items = []; return; }
-      while (t >= sd.nextAt) { this.spawn(sd, i); sd.nextAt += this.interval(sd.nextAt); }
       for (const bs of sd.bursts) bs.age += dt;
       sd.bursts = sd.bursts.filter((bs) => bs.age < (bs.kind === 'boom' ? BOOM_FX : POP_FX));
-      const pts = this.hitPoints(i);
+      if (p.lives <= 0) { sd.items = []; return; }
+      while (t >= sd.nextAt) { this.spawn(sd, i, W, H); sd.nextAt += this.interval(sd.nextAt); }
+      if (sd.combo && t - sd.lastPop > COMBO_GAP) sd.combo = 0; // 멈칫하면 콤보 끊김
+      const pts = this.limbPointsWorld(i);
       for (const it of sd.items) {
         it.age += dt;
-        if (it.age >= it.life) { // 수명 끝: 풍선은 다 부풀어 펑, 폭탄은 쾅 (점수·벌점 없음)
+        it.x += it.vx * dt; it.y += it.vy * dt;
+        if (it.motion === 'rise') it.x = it.x0 + Math.sin(it.age * 2.2 + it.bob) * 0.3;
+        if (it.age >= it.life) { // 수명 끝: 제자리 풍선은 펑, 폭탄은 쾅, 움직이는 풍선은 화면 밖으로 사라짐
           it.dead = true;
-          this.burst(sd, it, it.type === 'bomb' ? 'boom' : 'pop');
+          if (it.motion === 'static') this.burst(sd, it, it.type === 'bomb' ? 'boom' : 'pop');
           continue;
         }
         if (!pts.length) continue;
-        const reach = B_R * this.scaleOf(it) + 0.14; // 풍선이 작을 때는 맞히기 조금 더 어렵다
+        const reach = B_R * this.scaleOf(it) + 0.14; // 작을 때는 맞히기 조금 더 어렵다
         const near = (h) => Math.hypot(h.x - it.x, h.y - it.y) < reach;
-        const sc = this.toScreen(i, W, H, it.x, it.y);
         if (it.type === 'bomb') {
           if (it.age > B_ARM && pts.some(near) && this.hurt(i, '폭탄에 닿았어요')) {
-            it.dead = true; sd.bombs++; sfx.boom();
+            it.dead = true; sd.bombs++; sd.combo = 0; sfx.boom();
             this.burst(sd, it, 'boom');
           }
         } else if (pts.some((h) => !h.head && near(h))) {
           it.dead = true;
-          const got = it.type === 'gold' ? 30 : 10;
+          sd.combo = t - sd.lastPop <= COMBO_GAP ? sd.combo + 1 : 1;
+          sd.lastPop = t; sd.best = Math.max(sd.best, sd.combo);
+          const base = it.type === 'gold' ? 30 : it.small ? 20 : 10;
+          const got = Math.round(base * this.mult(sd));
           p.score += got; sd.pops++;
           this.burst(sd, it, 'pop');
-          this.pop(sc.x, sc.y - H * 0.03, `+${got}`, it.type === 'gold' ? '#ffd84d' : '#fff', 0.6);
+          const sc = this.world(i, W, H, it.x, it.y);
+          this.pop(sc.x, sc.y - H * 0.03, `+${got}`, got >= 30 ? '#ff6b4a' : got >= 15 ? '#ffd84d' : '#fff', 0.6);
+          if (sd.combo > 0 && sd.combo % 5 === 0) this.pop(sc.x, sc.y - H * 0.1, `🔥 ${sd.combo} 콤보!`, '#ff6b4a', 0.8);
           sfx.pop();
         }
       }
@@ -355,23 +391,29 @@ class Balloon extends FixedBase {
     const S = H * FIX_S, r = B_R * S;
     this.sides.forEach((sd, i) => {
       this.drawBackdrop(ctx, W, H, i);
+      if (this.fever) { // 피버 타임: 배경이 번쩍번쩍
+        ctx.fillStyle = `rgba(255,170,40,${0.1 + 0.08 * Math.sin((this.t || 0) * 12)})`;
+        ctx.fillRect(i * W / 2, 0, W / 2, H);
+      }
       for (const it of sd.items) {
-        const left = it.life - it.age;
+        const c = this.world(i, W, H, it.x, it.y + (it.motion === 'static' ? Math.sin(it.age * 3 + it.bob) * B_R * 0.08 : 0));
         if (it.type === 'bomb') { // 폭탄: 바로 제 크기로 '뿅'. 터지기 직전에 살짝 떨린다
-          const shake = left < 0.35 ? Math.sin(it.age * 60) * r * 0.08 : 0;
-          const c = this.toScreen(i, W, H, it.x, it.y);
+          const shake = it.life - it.age < 0.35 ? Math.sin(it.age * 60) * r * 0.08 : 0;
           emoji(ctx, '💣', c.x + shake, c.y, r * 2.2);
           continue;
         }
-        // 풍선: 점에서 부풀어 오름. 다 부풀 즈음 부르르 떨다가 터진다
-        const sc = this.scaleOf(it);
-        const wob = left < 0.3 ? 1 + Math.sin(it.age * 70) * 0.06 : 1;
-        const c = this.toScreen(i, W, H, it.x, it.y + Math.sin(it.age * 3 + it.bob) * B_R * 0.08);
-        emoji(ctx, it.type === 'gold' ? '🌟' : '🎈', c.x, c.y, r * 2.3 * sc * wob);
+        const wob = it.motion === 'static' && it.life - it.age < 0.3 ? 1 + Math.sin(it.age * 70) * 0.06 : 1;
+        const size = r * 2.3 * this.scaleOf(it) * wob;
+        if (it.small) { // 빠른 작은 풍선: 잔상
+          ctx.save(); ctx.globalAlpha = 0.25;
+          emoji(ctx, '🎈', c.x - Math.sign(it.vx || 0) * size * 0.6, c.y - Math.sign(it.vy || 0) * size * 0.6, size);
+          ctx.restore();
+        }
+        emoji(ctx, it.type === 'gold' ? '🌟' : '🎈', c.x, c.y, size);
       }
       // 터지는 효과: 풍선 → 별이 반짝 튀었다가 빠르게 사라짐 / 폭탄 → 쾅
       for (const bs of sd.bursts) {
-        const c = this.toScreen(i, W, H, bs.x, bs.y);
+        const c = this.world(i, W, H, bs.x, bs.y);
         if (bs.kind === 'pop') {
           const k = bs.age / POP_FX;
           emoji(ctx, '⭐', c.x, c.y, r * 2 * bs.size * (0.6 + 0.9 * k), 1 - k);
@@ -388,11 +430,20 @@ class Balloon extends FixedBase {
         }
       }
       this.drawFixedSkeleton(ctx, W, H, i, false);
+      // 위쪽: 콤보 / 피버 표시
+      const top = this.world(i, W, H, 0, 0).x;
+      if (sd.combo >= 2) {
+        const c = sd.combo, cs = H * 0.032 * (1 + Math.min(c, 15) / 15);
+        label(ctx, `🔥 ${c} 콤보 ×${this.mult(sd).toFixed(1)}`, top, H * 0.06, cs, 'rgba(0,0,0,.65)', c >= 10 ? '#ff4d5e' : c >= 5 ? '#ff7a3d' : '#ffd84d');
+      }
+      if (this.fever) label(ctx, '🔥 피버 타임! 🔥', top, H * 0.14, H * 0.035, 'rgba(255,120,30,.9)');
     });
     this.drawFx(ctx, W, H);
   }
-  detail(i) { return `🎈 ${this.sides[i].pops}개 터뜨림 · 💣 ${this.sides[i].bombs}번 닿음`; }
-  phaseText() { return '🎈 +10점 · 🌟 +30점 · 💣 닿으면 ❤️ -1'; }
+  detail(i) { const sd = this.sides[i]; return `🎈 ${sd.pops}개 터뜨림 · 최고 ${sd.best} 콤보 · 💣 ${sd.bombs}번 닿음`; }
+  phaseText() {
+    return this.fever ? '🔥 피버 타임! 풍선이 쏟아져요!' : '연속으로 터뜨리면 콤보! 움직이는 풍선을 쫓아가요 · 💣 피하기';
+  }
   simPose(t) { // 시뮬레이션: 팔을 이리저리 휘두른다
     const seq = [
       { L: { a: [90, 90], g: [3, 2] }, R: { a: [90, 90], g: [3, 2] } },
@@ -702,35 +753,29 @@ class Race extends Base {
 }
 
 // ---------------- 🧤 골키퍼 ----------------
-// 공이 멀리서 휘어지며 날아온다. 어디로 떨어질지는 미리 표시하지 않고, 지나온 궤적(꼬리)만 보여 준다.
-// 공이 몸 가까이 왔을 때(비행 후반) 손·팔에 닿으면 막는다. 몸통·머리·다리로는 못 막는다.
+// 선수 뒤에 골대가 있고, 공은 카메라 쪽(앞)에서 크게 날아와 작아지며 골대 안으로 들어간다.
+// 어디로 들어갈지는 미리 표시하지 않고, 지나온 궤적(꼬리)만 보여 준다.
+// 공이 골대 가까이 왔을 때(비행 후반) 손·팔에 닿으면 막는다. 몸통·머리·다리로는 못 막는다.
 // 스켈레톤은 1P·2P 같은 크기(고정)로 그리고, 위치는 실제로 움직인 만큼(몸통 길이 단위) 따라간다.
-// 좌표 '월드'는 몸통 길이 단위: x = 내 절반의 가운데에서 떨어진 거리, y = 평소 엉덩이 높이에서 떨어진 거리.
-const BLOCK_FROM = 0.82; // 비행의 이 지점부터 막을 수 있음 (몸 가까이 왔을 때만)
+const BLOCK_FROM = 0.82; // 비행의 이 지점부터 막을 수 있음 (골대 가까이 왔을 때만)
 const GK_SLOW = 1.8, GK_FAST = 0.75, GK_RAMP = 0.026; // 공 비행 시간(초): 시작 → 최소, 1초마다 줄어드는 양
-const GK_R = 0.22;        // 공 반지름 (몸통 길이 단위)
+const GK_R = 0.22;        // 공 반지름 (골대에 도착했을 때, 몸통 길이 단위)
+const GOAL_TOP = -2.95, GOAL_FLOOR = 1.75; // 골대 크로스바 높이, 바닥 (월드 좌표)
 class Goalie extends FixedBase {
   constructor(o) {
     super(o);
-    this.sides = [0, 1].map(() => ({ r: rng(this.seed), ball: null, nextAt: 1.2, saves: 0, goals: 0 }));
-    this.fb.forEach((f) => { f.ox = 0; });
+    this.free = true;
+    this.sides = [0, 1].map(() => ({ r: rng(this.seed), ball: null, nextAt: 1.2, saves: 0, goals: 0, net: 0, netAt: { x: 0, y: 0 } }));
   }
   // 공이 날아오는 시간: 처음 1.8초로 느긋하게 → 40초쯤 0.75초까지 점점 빨라진다 (두 선수 같음)
   dur(t) { return Math.max(GK_FAST, GK_SLOW - t * GK_RAMP); }
   gap(t) { return Math.max(0.4, 0.8 - t * 0.01); } // 공과 공 사이 쉬는 시간도 처음엔 넉넉하게
-  // 월드 범위 (내 절반 안)
-  bounds(W, H) {
-    const S = H * FIX_S;
-    return { x: (W / 4) / S, top: (0 - H * FIX_Y) / S, bot: (H - H * FIX_Y) / S };
-  }
-  // 스켈레톤(엉덩이 기준 좌표)은 옆으로 움직인 만큼 ox를 더해 그린다
-  toScreen(i, W, H, x, y) { return super.toScreen(i, W, H, x + this.fb[i].ox, y); }
-  world(i, W, H, x, y) { return super.toScreen(i, W, H, x, y); } // 공은 월드 좌표 그대로
+  goalX(W, H) { return this.bounds(W, H).x - 0.25; } // 골대 반폭
   pos(ball, k) { // 2차 베지어 곡선 (휘어지는 슛)
     const a = (1 - k) ** 2, b = 2 * (1 - k) * k, c = k * k;
     return { x: a * ball.sx + b * ball.cx + c * ball.tx, y: a * ball.sy + b * ball.cy + c * ball.ty };
   }
-  radius(ball, k) { return GK_R * (0.35 + 0.65 * k * k); }
+  radius(ball, k) { return GK_R * (1.8 - 0.8 * k); } // 카메라 앞에서 크게 → 골대로 갈수록 작게
   // 팔 마디(어깨-팔꿈치, 팔꿈치-손목, 손목-손끝)를 월드 좌표로
   armsWorld(i) {
     const n = this.fb[i].n, ox = this.fb[i].ox, segs = [];
@@ -750,33 +795,30 @@ class Goalie extends FixedBase {
   tick(t, dt, people, W, H, playing) {
     this.observe(people, W, H, dt);
     this.observeFixed(dt);
-    const B = this.bounds(W, H);
-    // 옆으로 움직인 거리 (몸통 길이 단위) → 고정 크기 스켈레톤도 그만큼 옆으로
-    this.players.forEach((p, i) => {
-      const f = this.fb[i];
-      if (p.b && f.cal) f.ox = clamp((p.b.hp.x - (i * W / 2 + W / 4)) / f.cal.torso, -B.x + 0.8, B.x - 0.8);
-    });
+    this.followSideways(W, H);
     if (!playing) return;
     this.t = t;
+    const B = this.bounds(W, H), GX = this.goalX(W, H);
     this.sides.forEach((sd, i) => {
       const p = this.players[i], f = this.fb[i];
+      sd.net = Math.max(0, sd.net - dt * 2.5);
       if (p.lives <= 0) { sd.ball = null; return; }
       if (!sd.ball && t >= sd.nextAt) {
         const u = [sd.r(), sd.r(), sd.r(), sd.r()];
         if (!f.n) { sd.nextAt = t + 0.5; return; }
-        // 목표: 그쪽 어깨에서 이 선수 팔 길이의 60~105% (팔을 쭉 뻗어야 닿는 거리)
+        // 목표: 그쪽 어깨에서 이 선수 팔 길이의 60~105% (팔을 쭉 뻗어야 닿는 거리), 골대 안으로
         const { arm, shw } = f.reach;
         const n = f.n, shc = { x: (n[LM.lShoulder].x + n[LM.rShoulder].x) / 2 + f.ox, y: (n[LM.lShoulder].y + n[LM.rShoulder].y) / 2 };
         const phi = (u[0] * 2 - 1) * 2.2;
         const d = arm * (0.6 + u[1] * 0.45);
-        const tx = clamp(shc.x + Math.sign(Math.sin(phi)) * shw + Math.sin(phi) * d, -B.x + 0.3, B.x - 0.3);
-        const ty = clamp(shc.y - Math.cos(phi) * d, B.top + 0.4, B.bot - 0.3);
-        const sx = (u[2] - 0.5) * 3.2, sy = B.top + 0.25;
-        // 휘는 방향과 정도 (가운데를 옆으로 밀어서 곡선을 만든다)
+        const tx = clamp(shc.x + Math.sign(Math.sin(phi)) * shw + Math.sin(phi) * d, -GX + 0.3, GX - 0.3);
+        const ty = clamp(shc.y - Math.cos(phi) * d, GOAL_TOP + 0.3, GOAL_FLOOR - 0.3);
+        // 출발: 카메라 앞(화면 아래쪽, 크게)에서
+        const sx = (u[2] - 0.5) * 3.2, sy = B.bot + 0.6;
         const bend = (u[3] < 0.5 ? -1 : 1) * (1.3 + Math.abs(u[3] - 0.5) * 4.3); // 항상 크게 휜다
         sd.ball = {
           sx, sy, tx, ty,
-          cx: clamp((sx + tx) / 2 + bend, -B.x, B.x), cy: Math.min(sy, ty) + (ty - sy) * 0.3 - 0.5,
+          cx: clamp((sx + tx) / 2 + bend, -B.x, B.x), cy: (sy + ty) / 2 - 0.6,
           p: 0, dur: this.dur(t), state: 'fly', after: 0, trail: [], ex: tx, ey: ty,
         };
         sfx.kick();
@@ -786,7 +828,7 @@ class Goalie extends FixedBase {
       if (ball.state === 'fly') {
         ball.p = Math.min(1, ball.p + dt / ball.dur);
         const pt = this.pos(ball, ball.p);
-        ball.trail.push(pt);
+        ball.trail.push({ ...pt, r: this.radius(ball, ball.p) });
         if (ball.trail.length > 16) ball.trail.shift();
         if (ball.p >= BLOCK_FROM && this.blocked(i, pt, this.radius(ball, ball.p))) {
           ball.state = 'saved'; ball.ex = pt.x; ball.ey = pt.y;
@@ -796,6 +838,7 @@ class Goalie extends FixedBase {
           sfx.save();
         } else if (ball.p >= 1) {
           ball.state = 'goal';
+          sd.net = 1; sd.netAt = { x: ball.tx, y: ball.ty }; // 그물이 출렁
           const sc = this.world(i, W, H, ball.tx, ball.ty);
           if (p.everSeen) { sd.goals++; this.hurt(i, '골을 먹었어요', sc.x, sc.y, true); sfx.boom(); } // 무적 중이어도 골은 무조건 -1
         }
@@ -806,35 +849,71 @@ class Goalie extends FixedBase {
       }
     });
   }
+  drawGoal(ctx, W, H, i) {
+    const sd = this.sides[i], S = H * FIX_S, GX = this.goalX(W, H);
+    const P = (x, y) => this.world(i, W, H, x, y);
+    // 그물: 골이 들어간 자리 근처가 출렁인다
+    const bulge = (x, y) => {
+      if (!sd.net) return { x: 0, y: 0 };
+      const d = Math.hypot(x - sd.netAt.x, y - sd.netAt.y);
+      const k = sd.net * Math.max(0, 1 - d / 1.6) * 0.18 * Math.sin(sd.net * 18);
+      return { x: k, y: k * 0.5 };
+    };
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,255,255,0.22)'; ctx.lineWidth = Math.max(1, S * 0.012);
+    for (let x = -GX; x <= GX + 1e-6; x += 0.35) {
+      ctx.beginPath();
+      for (let y = GOAL_TOP; y <= GOAL_FLOOR + 1e-6; y += 0.2) { const b = bulge(x, y), q = P(x + b.x, y + b.y); y === GOAL_TOP ? ctx.moveTo(q.x, q.y) : ctx.lineTo(q.x, q.y); }
+      ctx.stroke();
+    }
+    for (let y = GOAL_TOP; y <= GOAL_FLOOR + 1e-6; y += 0.35) {
+      ctx.beginPath();
+      for (let x = -GX; x <= GX + 1e-6; x += 0.2) { const b = bulge(x, y), q = P(x + b.x, y + b.y); x === -GX ? ctx.moveTo(q.x, q.y) : ctx.lineTo(q.x, q.y); }
+      ctx.stroke();
+    }
+    // 골대 (기둥 2개 + 크로스바)
+    const a = P(-GX, GOAL_FLOOR), b = P(-GX, GOAL_TOP), c = P(GX, GOAL_TOP), d = P(GX, GOAL_FLOOR);
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.strokeStyle = 'rgba(0,0,0,.4)'; ctx.lineWidth = S * 0.16;
+    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.lineTo(c.x, c.y); ctx.lineTo(d.x, d.y); ctx.stroke();
+    ctx.strokeStyle = '#f4f6fb'; ctx.lineWidth = S * 0.1;
+    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.lineTo(c.x, c.y); ctx.lineTo(d.x, d.y); ctx.stroke();
+    ctx.restore();
+  }
   draw(ctx, W, H) {
     const S = H * FIX_S;
     this.sides.forEach((sd, i) => {
       this.drawBackdrop(ctx, W, H, i);
-      this.drawFixedSkeleton(ctx, W, H, i, false);
+      this.drawGoal(ctx, W, H, i);
+      // 골 들어간 공은 그물 안(선수 뒤)에 보이게 먼저 그린다
       const ball = sd.ball;
-      if (!ball) return;
-      // 지나온 궤적 (꼬리)
-      ball.trail.forEach((pt, k) => {
-        const f = (k + 1) / ball.trail.length, c = this.world(i, W, H, pt.x, pt.y);
-        ctx.beginPath();
-        ctx.arc(c.x, c.y, GK_R * S * 0.35 * f + 2, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(255,255,255,${0.45 * f})`;
-        ctx.fill();
-      });
-      let x, y, r, a = 1;
-      if (ball.state === 'fly') {
-        ({ x, y } = this.pos(ball, ball.p));
-        r = this.radius(ball, ball.p);
-      } else {
-        const k = ball.after / 0.5;
-        const dir = ball.state === 'saved' ? (ball.ex < 0 ? -1 : 1) : 0;
-        x = ball.ex + dir * k * 1.2;
-        y = ball.ey - (ball.state === 'saved' ? k * 0.9 : 0);
-        r = GK_R * (ball.state === 'saved' ? 1 - k * 0.5 : 1 + k * 0.3);
-        a = 1 - k;
-      }
-      const c = this.world(i, W, H, x, y);
-      emoji(ctx, '⚽', c.x, c.y, r * S * 2, a);
+      const drawBall = () => {
+        if (!ball) return;
+        ball.trail.forEach((pt, k) => { // 지나온 궤적 (꼬리)
+          const f = (k + 1) / ball.trail.length, c = this.world(i, W, H, pt.x, pt.y);
+          ctx.beginPath();
+          ctx.arc(c.x, c.y, pt.r * S * 0.35 * f + 2, 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(255,255,255,${0.45 * f})`;
+          ctx.fill();
+        });
+        let x, y, r, a = 1;
+        if (ball.state === 'fly') {
+          ({ x, y } = this.pos(ball, ball.p));
+          r = this.radius(ball, ball.p);
+        } else if (ball.state === 'saved') { // 튕겨 나오며 다시 커진다 (카메라 쪽으로)
+          const k = ball.after / 0.5;
+          x = ball.ex + (ball.ex < 0 ? -1 : 1) * k * 1.2; y = ball.ey + k * 1.2;
+          r = GK_R * (1 + k * 0.8); a = 1 - k;
+        } else { // 골: 그물에 걸려 살짝 작아지며 사라짐
+          const k = ball.after / 0.5;
+          x = ball.tx; y = ball.ty + k * 0.4; r = GK_R * (1 - k * 0.3); a = 1 - k * 0.8;
+        }
+        const c = this.world(i, W, H, x, y);
+        emoji(ctx, '⚽', c.x, c.y, r * S * 2, a);
+      };
+      if (ball && ball.state === 'goal') drawBall();
+      this.drawFixedSkeleton(ctx, W, H, i, false);
+      if (ball && ball.state !== 'goal') drawBall();
     });
     this.drawFx(ctx, W, H);
   }

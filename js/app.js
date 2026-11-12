@@ -472,6 +472,7 @@ function tickMatch(now, dt, people) {
     if (e.kind === 'hit') arcadeHit(e.i, e.text);
     else if (e.kind === 'freeze') big('얼음! 🧊', 900, '16vh');
     else if (e.kind === 'unfreeze') big('땡! 💃', 800, '14vh');
+    else if (e.kind === 'fever') big('🔥 피버 타임! 🔥', 1200, '12vh');
   }
   $('hud').classList.toggle('frozen', !!A.frozen);
   $('roundTime').textContent = Math.max(0, Math.ceil(s.roundSec - t));
@@ -489,7 +490,7 @@ function tickMatch(now, dt, people) {
 const WIN_BONUS = 20;
 const MODE_INFO = ARCADE_INFO;
 function gamePoints(m, i) {
-  const raw = { dance: 0.2, balloon: 0.25, wall: 6, race: 1, goalie: 4 }[m.mode] * m.arcade.players[i].score;
+  const raw = { dance: 0.2, balloon: 0.13, wall: 6, race: 1, goalie: 4 }[m.mode] * m.arcade.players[i].score;
   return Math.round(Math.max(0, Math.min(100, raw)));
 }
 
