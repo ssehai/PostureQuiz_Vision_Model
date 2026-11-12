@@ -1,6 +1,6 @@
 // 얼음! 자세 버티기 - 메인 게임 흐름
 import { BONES, JOINTS, LM } from './poses.js';
-import { DIFFICULTY, seenLm } from './judge.js';
+import { DIFFICULTY, seenLm, extendLegs } from './judge.js';
 import { CameraTracker, listCameras } from './tracker.js';
 import { SimTracker } from './sim.js';
 import { sfx } from './sound.js';
@@ -615,6 +615,10 @@ function drawSkeleton(lms, color, W, H) {
   for (const [a, b] of BONES) line(a, b);
   ctx.lineWidth = lw;
   for (const [a, b] of BONES) {
+    if (lms[b].est) { // 화면 밖이라 허벅지 방향으로 이어 그린 정강이
+      ctx.save(); ctx.globalAlpha = 0.6; ctx.strokeStyle = color; line(a, b); ctx.restore();
+      continue;
+    }
     if (!seenLm(lms[a]) || !seenLm(lms[b])) {
       ctx.save();
       ctx.setLineDash([lw * 1.2, lw * 1.2]);
@@ -648,7 +652,7 @@ function frame(now) {
   tr.drawFrame(ctx, W, H);
 
   let people = [null, null];
-  try { people = assignSides(tr.detect(now)); } catch (e) { console.error(e); }
+  try { people = assignSides(tr.detect(now)).map(extendLegs); } catch (e) { console.error(e); }
   state.people = people;
 
   // 가운데 구분선

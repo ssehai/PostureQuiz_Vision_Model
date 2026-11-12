@@ -64,11 +64,12 @@ function label(ctx, text, x, y, size, bg = 'rgba(0,0,0,.6)', fg = '#fff') {
 // 화면 속 몸 정보 (몸통이 안 보이면 null)
 function readBody(lms, W, H) {
   if (!lms) return null;
-  const ok = (i) => seenLm(lms[i]);
+  const ok = (i) => seenLm(lms[i]) && !lms[i].est; // 실제로 보이는 관절 (판정용)
+  const est = (i) => !!lms[i].est;                 // 허벅지 방향으로 이어 추정한 발목 (그림·발차기용)
   if (![LM.lShoulder, LM.rShoulder, LM.lHip, LM.rHip].every(ok)) return null;
   const P = (i) => ({ x: lms[i].x * W, y: lms[i].y * H });
   const sh = mid(P(LM.lShoulder), P(LM.rShoulder)), hp = mid(P(LM.lHip), P(LM.rHip));
-  return { lms, P, ok, sh, hp, torso: Math.max(20, dist(sh, hp)) };
+  return { lms, P, ok, est, sh, hp, torso: Math.max(20, dist(sh, hp)) };
 }
 // 팔 마디들: [어깨-팔꿈치], [팔꿈치-손목], [손목-손끝(추정)]
 function armSegments(b) {
@@ -175,7 +176,7 @@ class FixedBase extends Base {
   constructor(o) {
     super(o);
     this.ownSkeleton = true;
-    this.fb = [0, 1].map(() => ({ samples: [], cal: null, calAt: 0, n: null }));
+    this.fb = [0, 1].map(() => ({ samples: [], cal: null, calAt: 0, n: null, arms: [], shw: [], reach: { arm: 1.05, shw: 0.35 } }));
     this.now = 0;
   }
   // 몸이 보일 때마다 기준(평소 높이·몸통 길이)을 갱신하고, 고정 좌표 n을 만든다
@@ -202,9 +203,21 @@ class FixedBase extends Base {
       const n = {};
       for (const k of Object.values(LM)) {
         const q = P(k);
-        n[k] = { x: (q.x - b.hp.x) / f.cal.torso, y: (q.y - f.cal.hip) / f.cal.torso, ok: b.ok(k) };
+        n[k] = { x: (q.x - b.hp.x) / f.cal.torso, y: (q.y - f.cal.hip) / f.cal.torso, ok: b.ok(k), show: b.ok(k) || b.est(k) };
       }
       f.n = n;
+      // 이 선수의 팔 길이·어깨 폭 (몸통 길이 단위). 팔을 굽히면 짧게 재지므로 많이 편 쪽(상위 20%)을 쓴다
+      for (const [s, e, w] of [[LM.lShoulder, LM.lElbow, LM.lWrist], [LM.rShoulder, LM.rElbow, LM.rWrist]]) {
+        if (!n[s].ok || !n[e].ok || !n[w].ok) continue;
+        f.arms.push(Math.hypot(n[e].x - n[s].x, n[e].y - n[s].y) + Math.hypot(n[w].x - n[e].x, n[w].y - n[e].y));
+      }
+      f.shw.push(Math.abs(n[LM.lShoulder].x - n[LM.rShoulder].x) / 2);
+      if (f.arms.length > 120) f.arms.splice(0, f.arms.length - 120);
+      if (f.shw.length > 60) f.shw.splice(0, f.shw.length - 60);
+      if (f.arms.length >= 10) {
+        const a = f.arms.slice().sort((x, y) => x - y);
+        f.reach = { arm: clamp(a[Math.floor(a.length * 0.8)], 0.7, 1.4), shw: clamp(median(f.shw), 0.2, 0.5) };
+      }
     });
   }
   // 고정 좌표 → 화면 좌표
@@ -233,13 +246,15 @@ class FixedBase extends Base {
     ctx.save();
     ctx.lineCap = 'round';
     if (glow) { ctx.shadowColor = GOOD; ctx.shadowBlur = S * 0.3; }
-    ctx.globalAlpha = p.inv > 0 && Math.sin(this.now * 25) > 0 ? 0.4 : 1;
+    const blink = p.inv > 0 && Math.sin(this.now * 25) > 0 ? 0.4 : 1; // 무적 중엔 깜빡임
     ctx.strokeStyle = glow ? GOOD : SIDE_COLORS[i]; ctx.lineWidth = S * 0.12;
     for (const [a, b] of BONES) {
-      if (!n[a].ok || !n[b].ok) continue;
+      if (!n[a].show || !n[b].show) continue;
       const pa = at(a), pb = at(b);
+      ctx.globalAlpha = blink * (n[b].ok ? 1 : 0.6); // 허벅지 방향으로 이어 그린 정강이는 조금 흐리게
       ctx.beginPath(); ctx.moveTo(pa.x, pa.y); ctx.lineTo(pb.x, pb.y); ctx.stroke();
     }
+    ctx.globalAlpha = blink;
     const h = at(LM.nose);
     ctx.lineWidth = S * 0.09;
     ctx.beginPath(); ctx.arc(h.x, h.y, 0.24 * S, 0, Math.PI * 2); ctx.stroke();
@@ -253,6 +268,7 @@ const B_LIFE = 3.2;   // 풍선이 떠 있는 시간
 const B_ARM = 0.5;    // 폭탄이 나타난 뒤 이 시간 동안은 닿아도 안전 (피할 시간)
 const B_R = 0.22;     // 풍선 반지름 (몸통 길이 단위)
 const B_GAP = 1.05;   // 폭탄과 풍선 중심 사이 최소 거리 (풍선을 치다가 폭탄을 같이 건드리지 않게)
+const B_GAP_MIN = 0.75; // 팔이 짧으면 풍선 나올 자리가 좁아서 간격을 줄인다 (손 판정 반경 둘을 합친 0.72보다는 크게)
 const B_X = 1.85, B_TOP = -2.7, B_BOT = 1.7; // 풍선이 나올 수 있는 범위
 
 class Balloon extends FixedBase {
@@ -271,7 +287,7 @@ class Balloon extends FixedBase {
       pts.push({ x: n[w].x, y: n[w].y, head: false });
       if (n[e].ok) pts.push({ x: n[w].x + (n[w].x - n[e].x) * 0.3, y: n[w].y + (n[w].y - n[e].y) * 0.3, head: false });
     }
-    for (const a of [LM.lAnkle, LM.rAnkle]) if (n[a].ok) pts.push({ x: n[a].x, y: n[a].y, head: false });
+    for (const a of [LM.lAnkle, LM.rAnkle]) if (n[a].show) pts.push({ x: n[a].x, y: n[a].y, head: false }); // 추정한 발로도 찰 수 있음
     if (n[LM.nose].ok) pts.push({ x: n[LM.nose].x, y: n[LM.nose].y, head: true });
     return pts;
   }
@@ -282,23 +298,31 @@ class Balloon extends FixedBase {
     const low = u[1] < 0.2; // 발로 찰 수 있는 낮은 곳
     const hands = type === 'bomb' ? this.hitPoints(i) : [];
     // 폭탄과 풍선이 겹치지 않게, 폭탄이 손·머리 위에 바로 생기지 않게: 안 겹치는 자리를 차례로 찾아본다
-    for (let a = 0; a < 14; a++) {
+    const gap = clamp(this.fb[i].reach.arm * 0.85, B_GAP_MIN, B_GAP);
+    let best = null, bestRoom = -Infinity;
+    for (let a = 0; a < 24; a++) {
       let x, y;
       const turn = (a % 2 ? -1 : 1) * Math.ceil(a / 2) * 0.55;
       if (low) {
         x = (u[2] < 0.5 ? -1 : 1) * (0.45 + u[3] * 0.5) + turn * 0.6;
         y = 1.25 + u[4] * 0.35;
-      } else { // 어깨를 중심으로 팔이 닿는 범위 (위·옆)
+      } else { // 그쪽 어깨에서 이 선수의 팔 길이 50~90% 거리 (팔 길이는 직접 잰 값 → 팔이 짧아도 닿는다)
+        const { arm, shw } = this.fb[i].reach;
         const phi = (u[2] * 2 - 1) * 1.95 + turn;
-        const d = 0.85 + u[3] * 0.65;
-        x = Math.sin(phi) * d;
+        const d = arm * (0.5 + ((u[3] + a * 0.37) % 1) * 0.4); // 다시 찾을 때는 거리도 바꿔 본다
+        x = Math.sign(Math.sin(phi)) * shw + Math.sin(phi) * d;
         y = -1 - Math.cos(phi) * d;
       }
       x = clamp(x, -B_X, B_X); y = clamp(y, B_TOP, B_BOT);
-      const clash = sd.items.some((it) => (it.type === 'bomb') !== (type === 'bomb') && Math.hypot(it.x - x, it.y - y) < B_GAP) ||
-        hands.some((h) => Math.hypot(h.x - x, h.y - y) < B_R * 2.4);
-      if (!clash) { sd.items.push({ type, x, y, age: 0, bob: u[4] * 6 }); return; }
+      // 여유 = 피해야 할 것(다른 종류 물체, 폭탄이면 손·머리)과의 거리가 기준보다 얼마나 넉넉한지
+      let room = Infinity;
+      for (const it of sd.items) if ((it.type === 'bomb') !== (type === 'bomb')) room = Math.min(room, Math.hypot(it.x - x, it.y - y) - gap);
+      for (const h of hands) room = Math.min(room, Math.hypot(h.x - x, h.y - y) - B_R * 2.4);
+      if (room >= 0) { best = { x, y }; break; }
+      if (!best || room > bestRoom) { best = { x, y }; bestRoom = room; }
     }
+    // 빈자리를 못 찾아도 건너뛰지 않고 가장 넉넉한 자리에 낸다 → 팔이 짧아도 나오는 개수가 같다
+    sd.items.push({ type, x: best.x, y: best.y, age: 0, bob: u[4] * 6 });
   }
   tick(t, dt, people, W, H, playing) {
     this.observe(people, W, H, dt);
@@ -312,7 +336,7 @@ class Balloon extends FixedBase {
       for (const it of sd.items) {
         it.age += dt;
         if (!pts.length) continue;
-        const near = (h) => Math.hypot(h.x - it.x, h.y - it.y) < B_R + 0.1;
+        const near = (h) => Math.hypot(h.x - it.x, h.y - it.y) < B_R + 0.14;
         const sc = this.toScreen(i, W, H, it.x, it.y);
         if (it.type === 'bomb') {
           if (it.age > B_ARM && pts.some(near) && this.hurt(i, '폭탄에 닿았어요', sc.x, sc.y)) {
