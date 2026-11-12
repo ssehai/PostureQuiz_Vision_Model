@@ -2,7 +2,7 @@
 // 모든 좌표는 캔버스 픽셀(카메라 해상도). 선수 왼쪽 = 화면 왼쪽 절반, 오른쪽 = 오른쪽 절반.
 // 공정성: 두 선수에게 같은 씨앗(seed)의 난수를 써서 같은 순서·같은 종류의 물체가 나오고,
 // 위치는 각자 몸 크기(몸통 길이) 기준으로 정해서 키가 커도 유리하지 않다.
-import { LM, BONES, POSES, makePose, poseDetail, computeAngles } from './poses.js';
+import { LM, BONES, POSES, makePose } from './poses.js';
 import { seenLm } from './judge.js';
 import { sfx } from './sound.js';
 
@@ -11,6 +11,7 @@ const GOOD = '#2fdc7a';
 const SIDE_COLORS = ['#ffd84d', '#4de1ff'];
 
 export const ARCADE_INFO = {
+  dance:   { emoji: '💃', name: '막춤 얼음땡', hint: '크게 움직일수록 점수 UP! "얼음!" 하면 멈춰요' },
   balloon: { emoji: '🎈', name: '풍선 터뜨리기', hint: '풍선은 손발로 펑! 폭탄 💣은 피해요!' },
   wall:    { emoji: '🧱', name: '벽 통과하기',   hint: '벽 구멍 모양대로 몸을 만들어요!' },
   race:    { emoji: '🏃', name: '제자리 달리기', hint: '무릎을 높이 들며 제자리에서 달려요!' },
@@ -103,6 +104,7 @@ class Base {
     this.events = [];
     this.flash = [0, 0];
     this.usesLives = true;
+    this.endsOnOut = true;  // 한 명이 생명을 다 잃으면 바로 끝 (막춤은 둘 다 잃을 때만)
     this.ownSkeleton = false;
   }
   observe(people, W, H, dt) {
@@ -117,9 +119,9 @@ class Base {
     this.flash = this.flash.map((v) => Math.max(0, v - dt * 2));
   }
   // 생명 -1 (무적이거나 빈 자리면 무시). 깎였으면 true
-  hurt(i, text, x, y) {
+  hurt(i, text, x, y, force = false) {
     const p = this.players[i];
-    if (p.inv > 0 || !p.everSeen || p.lives <= 0) return false;
+    if ((p.inv > 0 && !force) || !p.everSeen || p.lives <= 0) return false;
     p.lives--;
     p.inv = INV;
     this.flash[i] = 1;
@@ -366,15 +368,57 @@ class Balloon extends FixedBase {
 }
 
 // ---------------- 🧱 다가오는 벽 ----------------
+// 자세 판정: 팔다리 마디마다 '어느 방향을 가리키는지'를 자세 정의(0=아래, 90=바깥, 180=위, 180 넘으면 안쪽)와 비교한다.
+// 관절이 굽은 정도만 보면 '팔 ㄴ자(선인장)'와 '팔 ㄱ자(로봇)'가 똑같이 90도라 구분이 안 되기 때문.
+// 몸이 기울어도 되도록 몸통 축 기준으로 재고, 좌우를 바꾼(거울) 자세도 정답으로 인정한다.
+const LIMB_TOL = { easy: [25, 35], normal: [20, 30], hard: [15, 25] }; // [이만큼 틀려도 만점, 여기서 더 틀리면 0점] (도)
+const LIMBS = [
+  ['L', 'a', 0, LM.lShoulder, LM.lElbow], ['L', 'a', 1, LM.lElbow, LM.lWrist],
+  ['R', 'a', 0, LM.rShoulder, LM.rElbow], ['R', 'a', 1, LM.rElbow, LM.rWrist],
+  ['L', 'g', 0, LM.lHip, LM.lKnee], ['L', 'g', 1, LM.lKnee, LM.lAnkle],
+  ['R', 'g', 0, LM.rHip, LM.rKnee], ['R', 'g', 1, LM.rKnee, LM.rAnkle],
+];
+export function limbScore(pts, pose, diffKey = 'normal') {
+  const [tol, fall] = LIMB_TOL[diffKey] || LIMB_TOL.normal;
+  const sh = mid(pts[LM.lShoulder], pts[LM.rShoulder]), hp = mid(pts[LM.lHip], pts[LM.rHip]);
+  const tilt = Math.atan2(sh.x - hp.x, hp.y - sh.y); // 몸통이 기운 만큼 되돌린다
+  const c = Math.cos(-tilt), s = Math.sin(-tilt);
+  const wrap = (d) => ((d % 360) + 540) % 360 - 180;
+  const dirOf = (a, b, side) => { // side: L = 화면 왼쪽(-1), R = 오른쪽(+1)
+    const dx = pts[b].x - pts[a].x, dy = pts[b].y - pts[a].y;
+    const rx = dx * c - dy * s, ry = dx * s + dy * c;
+    return (Math.atan2(side * rx, ry) * 180) / Math.PI; // 0=아래, +90=바깥, ±180=위
+  };
+  const score = (spec) => {
+    const vals = [];
+    for (const [sd, part, k, a, b] of LIMBS) {
+      if (!pts[a].ok || !pts[b].ok) continue; // 화면 밖 다리는 빼고 판정
+      const d = Math.abs(wrap(dirOf(a, b, sd === 'L' ? -1 : 1) - spec[sd][part][k]));
+      vals.push(clamp(1 - (d - tol) / fall, 0, 1));
+    }
+    if (!vals.length) return 0;
+    vals.sort((x, y) => x - y);
+    const mean = vals.reduce((x, y) => x + y, 0) / vals.length;
+    return 0.5 * mean + 0.5 * vals[0]; // 가장 많이 틀린 마디를 크게 반영 → 팔 하나만 틀려도 통과 못 함
+  };
+  return Math.max(score(pose), score({ L: pose.R, R: pose.L }));
+}
+
 const WALL_TRAVEL = 4.0;  // 기본 속도에서 벽이 멀리서 몸까지 오는 시간(초)
 const WALL_GAP = 0.6;     // 벽과 벽 사이 쉬는 시간(초)
 const HIT_FROM = 0.9, HIT_TO = 1.04; // 벽이 몸에 닿는 구간 (이 사이에 한 번이라도 맞으면 통과)
 const WALL_X = [-1.9, 1.9], WALL_Y = [-2.6, 1.9]; // 벽 크기 (몸통 길이 단위, 엉덩이 = 0)
 const DUCK_LINE = -1.05, JUMP_LINE = 1.3;
-const WALL_POSES = [
+export const WALL_POSES = [
   ...POSES.filter((p) => p.level === 1),
   makePose({ id: 'oneUp', name: '한 팔 번쩍', emoji: '🙋', L: { a: [165, 172], g: [3, 2] }, R: { a: [10, 5], g: [3, 2] } }),
   makePose({ id: 'robot', name: '로봇', emoji: '🤖', L: { a: [90, 0], g: [3, 2] }, R: { a: [90, 0], g: [3, 2] } }),
+  // 이집트 벽화: 한 팔은 ㄴ자로 위, 한 팔은 ㄱ자로 아래 (지그재그)
+  makePose({ id: 'egypt', name: '이집트 벽화', emoji: '🏺', L: { a: [90, 180], g: [3, 2] }, R: { a: [90, 0], g: [3, 2] } }),
+  makePose({ id: 'egyptWalk', name: '걷는 이집트인', emoji: '🐫', L: { a: [90, 0], g: [28, 28] }, R: { a: [90, 180], g: [3, 2] } }),
+  makePose({ id: 'bolt', name: '번개', emoji: '⚡', L: { a: [135, 135], g: [3, 2] }, R: { a: [45, 45], g: [25, 25] } }),
+  makePose({ id: 'heart', name: '머리 위 하트', emoji: '🫶', L: { a: [150, 230], g: [3, 2] }, R: { a: [150, 230], g: [3, 2] } }),
+  POSES.find((p) => p.id === 'flamingo'),
 ];
 const WALL_COLORS = { pose: '#3d8bff', duck: '#ff9f1c', jump: '#9b59ff' };
 
@@ -398,12 +442,8 @@ class Wall extends FixedBase {
       return false;
     }
     const pts = {};
-    for (const k of Object.values(LM)) pts[k] = { x: b.lms[k].x * W, y: b.lms[k].y * H };
-    const a = computeAngles(pts);
-    if (!b.ok(LM.lKnee)) { a.lHip = null; a.lKnee = null; } else if (!b.ok(LM.lAnkle)) a.lKnee = null;
-    if (!b.ok(LM.rKnee)) { a.rHip = null; a.rKnee = null; } else if (!b.ok(LM.rAnkle)) a.rKnee = null;
-    const d = this.o.diff;
-    return poseDetail(a, w.pose, d.tol, d.falloff).score >= d.match;
+    for (const k of Object.values(LM)) pts[k] = { ...b.P(k), ok: b.ok(k) };
+    return limbScore(pts, w.pose, this.o.diffKey) >= this.o.diff.match;
   }
   tick(t, dt, people, W, H, playing) {
     this.observe(people, W, H, dt);
@@ -486,7 +526,7 @@ class Wall extends FixedBase {
         ctx.drawImage(oc, x0, 0);
         // 무엇을 해야 하는지 큰 글씨로
         const txt = w.kind === 'duck' ? '⬇ 숙여요!' : w.kind === 'jump' ? '⬆ 점프!' : `${w.pose.emoji} ${w.pose.name}!`;
-        label(ctx, txt, x0 + cx, H * 0.08 + S * 0.45, S * 0.42, WALL_COLORS[w.kind]);
+        label(ctx, txt, x0 + cx + (i ? 1 : -1) * W * 0.045, H * 0.08 + S * 0.45, S * 0.42, WALL_COLORS[w.kind]); // 가운데 위 카드에 가리지 않게 바깥쪽으로
         // 자세 벽은 맞춰야 할 모양을 내 자리에 점선으로 미리 보여 준다
         if (w.kind === 'pose') {
           const sk = w.pose.skeleton;
@@ -668,7 +708,7 @@ class Goalie extends Base {
           sfx.save();
         } else if (ball.p >= 1) {
           ball.state = 'goal';
-          if (p.everSeen) { sd.goals++; this.hurt(i, '골을 먹었어요', ball.tx, ball.ty); sfx.boom(); }
+          if (p.everSeen) { sd.goals++; this.hurt(i, '골을 먹었어요', ball.tx, ball.ty, true); sfx.boom(); } // 무적 중이어도 골은 무조건 -1
         }
       } else {
         ball.after += dt;
@@ -720,7 +760,163 @@ class Goalie extends Base {
   }
 }
 
+// ---------------- 💃 막춤 얼음땡 ----------------
+// 따라 할 스켈레톤 없이, 내 몸이 얼마나 크게·빠르게 움직이는지(역동성)로 점수를 쌓는다.
+// 정해진 시간 안에 '얼음!'이 무작위로 3번 나온다 (두 선수 같은 순간). 그때는 멈춰서 버텨야 하고,
+// 움직이면 생명이 줄어든다. 생명을 다 잃으면 그 선수의 점수는 그대로 멈춘다 (대결은 시간 끝까지).
+const DANCE_JOINTS = [LM.lWrist, LM.rWrist, LM.lElbow, LM.rElbow, LM.lKnee, LM.rKnee, LM.lAnkle, LM.rAnkle];
+const FREEZES = 3;
+const FREEZE_GRACE = 0.8;   // "얼음!" 직후 멈출 시간 (판정 안 함)
+const FREEZE_HOLD = 3;      // 멈춰서 버티는 시간
+const ENERGY_LOW = 0.5;     // 이보다 느린 움직임은 점수 없음 (몸통 길이/초)
+const ENERGY_FULL = 3.0;    // 이만큼 움직이면 최고 점수 (초당 10점)
+const STILL = { easy: 0.9, normal: 0.7, hard: 0.5 }; // 얼음 중 허용되는 움직임 (몸통 길이/초)
+
+class FreeDance extends Base {
+  constructor(o) {
+    super(o);
+    this.endsOnOut = false;
+    this.still = STILL[o.diffKey] ?? STILL.normal;
+    this.motion = [0, 1].map(() => ({ prev: null, energy: 0, danger: 0, freezeOK: 0, fails: 0, hitThis: false }));
+    this.freezeAt = null; // 대결 시간이 정해지면 만든다
+    this.phase = 'dance'; // dance | freeze
+    this.fT = 0;
+    this.fIdx = 0;
+    this.beatT = 0;
+  }
+  // 대결 시간 안에 '얼음' 3번을 서로 떨어지게 무작위 배치
+  plan(total) {
+    const r = rng(this.seed), len = FREEZE_GRACE + FREEZE_HOLD;
+    const start = 5, end = total - len - 2;
+    const slot = (end - start) / FREEZES;
+    this.freezeAt = Array.from({ length: FREEZES }, (_, k) => start + slot * k + r() * Math.max(0, slot - len - 2));
+  }
+  // 이번 프레임 움직임의 세기 (몸통 길이/초). 좌표를 먼저 살짝 스무딩해서 카메라 떨림은 움직임으로 치지 않고,
+  // 가장 빠른 절반의 관절 평균을 써서 팔만 흔들어도, 온몸으로 춤춰도 잘 잡히게 한다.
+  measure(i, dt) {
+    const p = this.players[i], M = this.motion[i];
+    if (!p.b || dt <= 0) { M.prev = null; M.sm = null; M.energy *= 0.8; return; }
+    const b = p.b, a = 1 - Math.exp(-dt * 12);
+    M.sm = M.sm || {};
+    const cur = {};
+    for (const k of [...DANCE_JOINTS, 'hip']) {
+      const raw = k === 'hip' ? b.hp : b.ok(k) ? b.P(k) : null;
+      if (!raw) { delete M.sm[k]; continue; }
+      const sm = M.sm[k] ? { x: M.sm[k].x + (raw.x - M.sm[k].x) * a, y: M.sm[k].y + (raw.y - M.sm[k].y) * a } : { ...raw };
+      M.sm[k] = sm; cur[k] = sm;
+    }
+    if (M.prev) {
+      const v = [];
+      for (const k in cur) if (M.prev[k]) v.push(Math.min(8, dist(cur[k], M.prev[k]) / b.torso / dt)); // 인식이 튀는 순간 이동은 잘라냄
+      v.sort((x, y) => y - x);
+      const top = v.slice(0, Math.max(1, Math.ceil(v.length / 2)));
+      const e = top.length ? top.reduce((x, y) => x + y, 0) / top.length : 0;
+      M.energy += (e - M.energy) * Math.min(1, dt * 6);
+    }
+    M.prev = cur;
+  }
+  tick(t, dt, people, W, H, playing, total) {
+    this.observe(people, W, H, dt);
+    this.players.forEach((_, i) => this.measure(i, dt));
+    if (!playing) return;
+    if (!this.freezeAt) this.plan(total);
+    this.t = t;
+    if (this.phase === 'dance') {
+      this.beatT += dt;
+      if (this.beatT >= 0.5) { this.beatT = 0; sfx.beat(); }
+      this.players.forEach((p, i) => {
+        if (!p.b || p.lives <= 0) return;
+        const q = clamp((this.motion[i].energy - ENERGY_LOW) / (ENERGY_FULL - ENERGY_LOW), 0, 1);
+        p.score += dt * 10 * q;
+      });
+      if (this.fIdx < FREEZES && t >= this.freezeAt[this.fIdx]) {
+        this.phase = 'freeze'; this.fT = 0;
+        this.motion.forEach((M) => { M.danger = 0; M.hitThis = false; });
+        this.events.push({ kind: 'freeze' });
+        sfx.freeze();
+      }
+    } else {
+      this.fT += dt;
+      const judging = this.fT >= FREEZE_GRACE;
+      this.players.forEach((p, i) => {
+        const M = this.motion[i];
+        if (!p.everSeen || p.lives <= 0) return;
+        if (!judging || p.inv > 0) { M.danger = Math.max(0, M.danger - dt); return; }
+        const moving = !p.b ? 0.8 : M.energy > this.still ? 1.3 + 2 * (M.energy - this.still) / this.still : 0;
+        if (moving) M.danger += dt * moving; else M.danger = Math.max(0, M.danger - dt * 0.4);
+        if (M.danger >= 1) {
+          M.danger = 0;
+          if (this.hurt(i, p.b ? '얼음인데 움직였어요' : '몸이 화면 밖으로 나갔어요')) { M.hitThis = true; M.fails++; }
+        }
+      });
+      if (this.fT >= FREEZE_GRACE + FREEZE_HOLD) {
+        this.phase = 'dance'; this.fIdx++;
+        let ok = false;
+        this.players.forEach((p, i) => { if (p.everSeen && p.lives > 0 && !this.motion[i].hitThis) { this.motion[i].freezeOK++; ok = true; } });
+        this.events.push({ kind: 'unfreeze' });
+        if (ok) sfx.bonus();
+      }
+    }
+  }
+  get frozen() { return this.phase === 'freeze'; }
+  status(i) {
+    const p = this.players[i], M = this.motion[i];
+    if (p.everSeen && p.lives <= 0) return ['out', '탈락 💧 점수가 멈췄어요'];
+    const s = super.status(i);
+    if (s && s[0] !== 'wait') return s;
+    if (this.frozen) return this.fT < FREEZE_GRACE ? ['wait', '얼음! 멈춰요! 🧊'] : M.energy > this.still ? ['wobble', '움직이면 안 돼요! 😵'] : ['ok', '잘 버티고 있어요! 🧊'];
+    const e = M.energy;
+    return e > 2.2 ? ['great', '불타는 춤! 🔥'] : e > 1 ? ['good', '좋아요! 더 크게! 👍'] : ['follow', '더 신나게 움직여요! 💃'];
+  }
+  scoreText(i) { return `${Math.floor(this.players[i].score)}점`; }
+  detail(i) { return `얼음 성공 ${this.motion[i].freezeOK} / ${FREEZES}번`; }
+  phaseText() {
+    if (this.frozen) {
+      const left = FREEZE_GRACE + FREEZE_HOLD - this.fT;
+      return this.fT < FREEZE_GRACE ? '얼음! 그 자세 그대로 멈춰요!' : `버텨요! ${Math.ceil(left)}초`;
+    }
+    return `크게 움직일수록 점수 UP! (얼음 ${this.fIdx}/${FREEZES})`;
+  }
+  draw(ctx, W, H) {
+    // 선수 머리 위 '불꽃 게이지' (지금 움직임의 세기)
+    this.players.forEach((p, i) => {
+      if (!p.b || p.lives <= 0) return;
+      const M = this.motion[i], T = p.b.torso;
+      const top = p.b.sh.y - T * 1.05, w = T * 1.2, h = Math.max(10, T * 0.09), x = p.b.sh.x - w / 2;
+      const q = this.frozen ? 0 : clamp((M.energy - ENERGY_LOW) / (ENERGY_FULL - ENERGY_LOW), 0, 1);
+      ctx.save();
+      ctx.fillStyle = 'rgba(0,0,0,.5)';
+      ctx.beginPath(); ctx.roundRect(x, top, w, h, h / 2); ctx.fill();
+      ctx.fillStyle = q > 0.6 ? '#ff6b4a' : q > 0.25 ? '#ffb020' : '#7a8499';
+      ctx.beginPath(); ctx.roundRect(x, top, Math.max(h, w * q), h, h / 2); ctx.fill();
+      ctx.restore();
+      if (this.frozen && this.fT >= FREEZE_GRACE && M.danger > 0) {
+        ctx.save();
+        ctx.strokeStyle = `rgba(255,77,94,${0.4 + 0.6 * M.danger})`; ctx.lineWidth = T * 0.06;
+        ctx.beginPath(); ctx.arc(p.b.sh.x, p.b.sh.y + T * 0.3, T * 1.3, 0, Math.PI * 2); ctx.stroke();
+        ctx.restore();
+      }
+    });
+    if (this.frozen) { // 얼음 동안 화면을 파랗게
+      ctx.fillStyle = 'rgba(80,170,255,0.18)';
+      ctx.fillRect(0, 0, W, H);
+    }
+    this.drawFx(ctx, W, H);
+  }
+  simPose(t) {
+    if (this.frozen) return this.lastSim || { L: { a: [90, 90], g: [3, 2] }, R: { a: [90, 90], g: [3, 2] } };
+    const seq = [
+      { L: { a: [150, 170], g: [10, 5] }, R: { a: [40, 10], g: [3, 2] } },
+      { L: { a: [40, 10], g: [3, 2] }, R: { a: [150, 170], g: [10, 5] } },
+      { L: { a: [90, 180], g: [30, 20] }, R: { a: [90, 0], g: [3, 2] } },
+      { L: { a: [130, 130], g: [3, 2] }, R: { a: [130, 130], g: [30, 30] } },
+    ];
+    this.lastSim = seq[Math.floor(t / 0.35) % seq.length];
+    return this.lastSim;
+  }
+}
+
 export function createArcade(mode, opts) {
-  const C = { balloon: Balloon, wall: Wall, race: Race, goalie: Goalie }[mode];
+  const C = { dance: FreeDance, balloon: Balloon, wall: Wall, race: Race, goalie: Goalie }[mode];
   return new C(opts);
 }
