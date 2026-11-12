@@ -489,7 +489,7 @@ function tickMatch(now, dt, people) {
 const WIN_BONUS = 20;
 const MODE_INFO = ARCADE_INFO;
 function gamePoints(m, i) {
-  const raw = { dance: 0.3, balloon: 0.25, wall: 6, race: 1, goalie: 4 }[m.mode] * m.arcade.players[i].score;
+  const raw = { dance: 0.2, balloon: 0.25, wall: 6, race: 1, goalie: 4 }[m.mode] * m.arcade.players[i].score;
   return Math.round(Math.max(0, Math.min(100, raw)));
 }
 

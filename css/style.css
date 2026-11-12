@@ -153,16 +153,24 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .stage-msg .awards.one { grid-template-columns: 1fr; max-width: 320px; margin-left: auto; margin-right: auto; }
 
 /* ---------- 활동형 미니게임 ---------- */
-#hud.arcade .pose-card { padding: 10px 20px; }
+/* 대시보드(시간·게임 카드)는 아래 띠 가운데, 두 선수 패널 사이에 둔다 → 게임 화면을 가리지 않음 */
+#hud .topbar { top: auto; bottom: 10px; left: calc(33vw + 4px); right: calc(33vw + 4px); height: calc(var(--panel-h) - 20px);
+  justify-content: center; align-items: stretch; gap: 8px; }
+#hud .round-timer { font-size: 44px; min-width: 0; width: 92px; flex: none; padding: 6px 8px; border-radius: 18px;
+  display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.72); }
+#hud .round-timer small { font-size: 18px; }
+#hud .round-timer.ghosty { display: none; }
+#hud .pose-card { flex: 1; min-width: 0; padding: 8px 14px; border-radius: 18px; gap: 4px; flex-direction: column; align-items: stretch; justify-content: center; box-shadow: none; }
+#hud .pose-info { min-width: 0; }
 #hud.arcade #ghost { display: none; }
-#hud.arcade .pose-name { font-size: 32px; }
-#hud.arcade .pose-hint { font-size: 17px; }
-#hud.race .pose-card { flex-direction: column; gap: 6px; text-align: center; }
-#hud.race #ghost { display: block; width: min(36vw, 420px); height: auto; aspect-ratio: 720 / 200; }
-#hud.race .pose-card { padding: 8px 12px; gap: 4px; }
+#hud .pose-name { font-size: 24px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#hud .pose-hint { font-size: 14px; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#hud .pose-phase { font-size: 14px; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#hud .bar { min-width: 0; width: 100%; height: 10px; }
+#hud .player-panel { width: calc(33vw - 14px); }
+/* 달리기: 카드에는 트랙과 안내 한 줄만 */
+#hud.race #ghost { display: block; width: 100%; height: auto; max-height: calc(var(--panel-h) - 64px); object-fit: contain; aspect-ratio: 720 / 200; background: #eef1f7; border-radius: 10px; }
 #hud.race .pose-hint, #hud.race .pose-name { display: none; }
-#hud.race .pose-phase { font-size: 15px; margin-top: 2px; }
-#hud.race .bar { min-width: 0; width: 100%; }
 .player-panel.simple { grid-template-columns: 1fr; }
 .status.great, .status.ok { color: var(--good); }
 .status.follow { color: var(--warn); }
@@ -176,3 +184,11 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 
 /* ---------- 막춤 얼음땡: 얼음 동안 위 카드를 파랗게 ---------- */
 #hud.frozen .pose-card { border: 5px solid #2a9df4; background: #e9f6ff; }
+/* 좁아진 선수 패널: 이름·팀·점수를 한 줄에 */
+#hud .player-panel { padding: 8px 14px; }
+#hud .player-panel .who { flex-wrap: nowrap; min-width: 0; }
+#hud .player-panel .pname { font-size: clamp(20px, 2.3vw, 34px); white-space: nowrap; }
+#hud .player-panel .pteam { font-size: clamp(12px, 1.2vw, 18px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+#hud .player-panel .pscore { font-size: clamp(20px, 2.3vw, 34px); white-space: nowrap; }
+#hud .player-panel .hearts { font-size: clamp(20px, 2vw, 30px); }
+#hud .player-panel .status { font-size: clamp(16px, 1.6vw, 24px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

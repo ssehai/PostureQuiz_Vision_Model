@@ -620,6 +620,20 @@ class Race extends Base {
       ctx.restore();
       label(ctx, '손 여기까지!', x2 + p.b.torso * 0.05, y, Math.max(14, p.b.torso * 0.13), 'rgba(0,0,0,.55)', '#ffd84d');
     });
+    // 각자 절반 맨 위에 달리기 트랙 (크게)
+    this.players.forEach((p, i) => {
+      const x0 = i * W / 2 + W * 0.03, x1 = (i + 1) * W / 2 - W * 0.06, y = H * 0.07, h = H * 0.09;
+      ctx.save();
+      ctx.fillStyle = 'rgba(0,0,0,.5)';
+      ctx.beginPath(); ctx.roundRect(x0 - W * 0.01, y - h / 2, x1 - x0 + W * 0.06, h, h / 2); ctx.fill();
+      ctx.setLineDash([12, 10]); ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(x1, y); ctx.stroke();
+      ctx.restore();
+      emoji(ctx, '🏁', x1 + W * 0.02, y, h * 0.7);
+      const k = Math.min(1, p.score / RACE_GOAL), rx = x0 + (x1 - x0) * k;
+      ctx.save(); ctx.translate(rx, y); ctx.scale(-1, 1); emoji(ctx, '🏃', 0, 0, h * 0.8); ctx.restore();
+      label(ctx, `${p.score}`, rx, y + h * 0.75, h * 0.32, 'rgba(0,0,0,.6)', SIDE_COLORS[i]);
+    });
     this.drawFx(ctx, W, H);
   }
   // 가운데 위 카드에 달리기 트랙을 그린다
@@ -771,13 +785,16 @@ const FREEZE_HOLD = 3;      // 멈춰서 버티는 시간
 const ENERGY_LOW = 0.5;     // 이보다 느린 움직임은 점수 없음 (몸통 길이/초)
 const ENERGY_FULL = 3.0;    // 이만큼 움직이면 최고 점수 (초당 10점)
 const STILL = { easy: 0.9, normal: 0.7, hard: 0.5 }; // 얼음 중 허용되는 움직임 (몸통 길이/초)
+// 콤보: 신나게(게이지 25% 넘게) 0.5초 움직일 때마다 +1, 멈칫하면(0.6초) 끊긴다. 콤보만큼 점수 배율이 오른다
+const COMBO_STEP = 0.5, COMBO_BREAK = 0.6, COMBO_MAX_MULT = 2; // 배율은 콤보 1개당 +0.05, 최대 ×2
+const FREEZE_BONUS = 20;   // 얼음을 생명 안 잃고 버티면 보너스
 
 class FreeDance extends Base {
   constructor(o) {
     super(o);
     this.endsOnOut = false;
     this.still = STILL[o.diffKey] ?? STILL.normal;
-    this.motion = [0, 1].map(() => ({ prev: null, energy: 0, danger: 0, freezeOK: 0, fails: 0, hitThis: false }));
+    this.motion = [0, 1].map(() => ({ prev: null, energy: 0, danger: 0, freezeOK: 0, fails: 0, hitThis: false, combo: 0, best: 0, comboT: 0, idle: 0, acc: 0, popT: 0, pulse: 0 }));
     this.freezeAt = null; // 대결 시간이 정해지면 만든다
     this.phase = 'dance'; // dance | freeze
     this.fT = 0;
@@ -825,9 +842,34 @@ class FreeDance extends Base {
       this.beatT += dt;
       if (this.beatT >= 0.5) { this.beatT = 0; sfx.beat(); }
       this.players.forEach((p, i) => {
+        const M = this.motion[i];
+        M.pulse = Math.max(0, M.pulse - dt * 3);
         if (!p.b || p.lives <= 0) return;
-        const q = clamp((this.motion[i].energy - ENERGY_LOW) / (ENERGY_FULL - ENERGY_LOW), 0, 1);
-        p.score += dt * 10 * q;
+        const q = clamp((M.energy - ENERGY_LOW) / (ENERGY_FULL - ENERGY_LOW), 0, 1);
+        // 콤보
+        if (q > 0.25) {
+          M.idle = 0; M.comboT += dt;
+          while (M.comboT >= COMBO_STEP) {
+            M.comboT -= COMBO_STEP; M.combo++; M.best = Math.max(M.best, M.combo);
+            if (M.combo % 10 === 0) { this.pop(this.hudX(i, W), H * 0.36, `🔥 ${M.combo} 콤보!`, '#ff6b4a'); sfx.bonus(); }
+          }
+        } else if (q < 0.1) {
+          M.idle += dt;
+          if (M.idle > COMBO_BREAK && M.combo > 0) { M.combo = 0; M.comboT = 0; }
+        }
+        // 점수 (콤보 배율) + 0.5초마다 얻은 점수를 머리 위에 띄운다
+        const gain = dt * 10 * q * this.mult(i);
+        p.score += gain; M.acc += gain; M.popT += dt;
+        if (M.popT >= 0.5) {
+          if (M.acc >= 1) {
+            const big = M.acc >= 5;
+            M.side = -(M.side || 1); // 머리 왼쪽·오른쪽 번갈아
+            this.pop(p.b.sh.x + M.side * p.b.torso * (0.85 + Math.random() * 0.2), Math.max(H * 0.3, p.b.sh.y - p.b.torso * 0.4),
+              `+${Math.round(M.acc)}`, big ? '#ff6b4a' : M.acc >= 2.5 ? '#ffd84d' : '#fff');
+            M.pulse = 1;
+          }
+          M.acc = 0; M.popT = 0;
+        }
       });
       if (this.fIdx < FREEZES && t >= this.freezeAt[this.fIdx]) {
         this.phase = 'freeze'; this.fT = 0;
@@ -846,19 +888,30 @@ class FreeDance extends Base {
         if (moving) M.danger += dt * moving; else M.danger = Math.max(0, M.danger - dt * 0.4);
         if (M.danger >= 1) {
           M.danger = 0;
-          if (this.hurt(i, p.b ? '얼음인데 움직였어요' : '몸이 화면 밖으로 나갔어요')) { M.hitThis = true; M.fails++; }
+          if (this.hurt(i, p.b ? '얼음인데 움직였어요' : '몸이 화면 밖으로 나갔어요')) { M.hitThis = true; M.fails++; M.combo = 0; M.comboT = 0; }
         }
       });
       if (this.fT >= FREEZE_GRACE + FREEZE_HOLD) {
         this.phase = 'dance'; this.fIdx++;
         let ok = false;
-        this.players.forEach((p, i) => { if (p.everSeen && p.lives > 0 && !this.motion[i].hitThis) { this.motion[i].freezeOK++; ok = true; } });
+        this.players.forEach((p, i) => {
+          if (!p.everSeen || p.lives <= 0 || this.motion[i].hitThis) return;
+          this.motion[i].freezeOK++; ok = true;
+          p.score += FREEZE_BONUS; this.motion[i].pulse = 1;
+          this.pop(this.hudX(i, W), H * 0.36, `🧊 얼음 성공 +${FREEZE_BONUS}`, '#7cc8ff');
+        });
         this.events.push({ kind: 'unfreeze' });
         if (ok) sfx.bonus();
       }
     }
   }
   get frozen() { return this.phase === 'freeze'; }
+  // 점수·게이지·콤보를 그릴 가로 위치: 선수를 따라가되 자기 절반 안에서
+  hudX(i, W) {
+    const b = this.players[i].b, x0 = i * W / 2;
+    return clamp(b ? b.sh.x : x0 + W / 4, x0 + W * 0.12, x0 + W / 2 - W * 0.12);
+  }
+  mult(i) { return Math.min(COMBO_MAX_MULT, 1 + this.motion[i].combo * 0.05); }
   status(i) {
     const p = this.players[i], M = this.motion[i];
     if (p.everSeen && p.lives <= 0) return ['out', '탈락 💧 점수가 멈췄어요'];
@@ -869,7 +922,7 @@ class FreeDance extends Base {
     return e > 2.2 ? ['great', '불타는 춤! 🔥'] : e > 1 ? ['good', '좋아요! 더 크게! 👍'] : ['follow', '더 신나게 움직여요! 💃'];
   }
   scoreText(i) { return `${Math.floor(this.players[i].score)}점`; }
-  detail(i) { return `얼음 성공 ${this.motion[i].freezeOK} / ${FREEZES}번`; }
+  detail(i) { return `얼음 성공 ${this.motion[i].freezeOK} / ${FREEZES}번 · 최고 ${this.motion[i].best} 콤보`; }
   phaseText() {
     if (this.frozen) {
       const left = FREEZE_GRACE + FREEZE_HOLD - this.fT;
@@ -878,19 +931,38 @@ class FreeDance extends Base {
     return `크게 움직일수록 점수 UP! (얼음 ${this.fIdx}/${FREEZES})`;
   }
   draw(ctx, W, H) {
-    // 선수 머리 위 '불꽃 게이지' (지금 움직임의 세기)
+    // 각 선수 절반의 맨 위 줄: 큰 점수 → 불꽃 게이지(지금 움직임의 세기) → 콤보. 머리 위가 아니라 고정 줄이라 서로 겹치지 않는다
     this.players.forEach((p, i) => {
-      if (!p.b || p.lives <= 0) return;
-      const M = this.motion[i], T = p.b.torso;
-      const top = p.b.sh.y - T * 1.05, w = T * 1.2, h = Math.max(10, T * 0.09), x = p.b.sh.x - w / 2;
+      if (!p.everSeen) return;
+      const M = this.motion[i], X = this.hudX(i, W);
+      const out = p.lives <= 0;
+      const fs = H * 0.085 * (1 + 0.3 * M.pulse);
+      const sy = H * 0.07;
+      ctx.save();
+      ctx.font = `${Math.round(fs)}px Jua, sans-serif`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.lineWidth = fs * 0.14; ctx.strokeStyle = 'rgba(0,0,0,.7)'; ctx.lineJoin = 'round';
+      const txt = `${Math.floor(p.score)}점${out ? ' 🔒' : ''}`;
+      ctx.strokeText(txt, X, sy);
+      ctx.fillStyle = out ? '#9aa3b5' : SIDE_COLORS[i]; ctx.fillText(txt, X, sy);
+      ctx.restore();
+      if (out) return;
       const q = this.frozen ? 0 : clamp((M.energy - ENERGY_LOW) / (ENERGY_FULL - ENERGY_LOW), 0, 1);
+      const w = W * 0.16, h = H * 0.018, bx = X - w / 2, by = H * 0.125;
       ctx.save();
       ctx.fillStyle = 'rgba(0,0,0,.5)';
-      ctx.beginPath(); ctx.roundRect(x, top, w, h, h / 2); ctx.fill();
+      ctx.beginPath(); ctx.roundRect(bx, by, w, h, h / 2); ctx.fill();
       ctx.fillStyle = q > 0.6 ? '#ff6b4a' : q > 0.25 ? '#ffb020' : '#7a8499';
-      ctx.beginPath(); ctx.roundRect(x, top, Math.max(h, w * q), h, h / 2); ctx.fill();
+      ctx.beginPath(); ctx.roundRect(bx, by, Math.max(h, w * q), h, h / 2); ctx.fill();
       ctx.restore();
-      if (this.frozen && this.fT >= FREEZE_GRACE && M.danger > 0) {
+      if (M.combo >= 2 && !this.frozen) {
+        const c = M.combo, cs = H * 0.032 * (1 + Math.min(c, 30) / 30);
+        const col = c >= 20 ? '#ff4d5e' : c >= 10 ? '#ff7a3d' : '#ffd84d';
+        label(ctx, `🔥 ${c} 콤보 ×${this.mult(i).toFixed(2).replace(/0$/, '')}`, X, by + h + cs * 1.1, cs, 'rgba(0,0,0,.65)', col);
+      }
+      // 얼음 중 움직이면 몸 주변에 빨간 경고 원
+      if (p.b && this.frozen && this.fT >= FREEZE_GRACE && M.danger > 0) {
+        const T = p.b.torso;
         ctx.save();
         ctx.strokeStyle = `rgba(255,77,94,${0.4 + 0.6 * M.danger})`; ctx.lineWidth = T * 0.06;
         ctx.beginPath(); ctx.arc(p.b.sh.x, p.b.sh.y + T * 0.3, T * 1.3, 0, Math.PI * 2); ctx.stroke();
