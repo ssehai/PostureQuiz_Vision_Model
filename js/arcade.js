@@ -15,7 +15,7 @@ export const ARCADE_INFO = {
   balloon: { emoji: '🎈', name: '풍선 터뜨리기', hint: '움직이는 풍선을 쫓아가 펑! 폭탄 💣은 피해요!' },
   wall:    { emoji: '🧱', name: '벽 통과하기',   hint: '벽 구멍 모양대로 몸을 만들어요!' },
   race:    { emoji: '🏃', name: '제자리 달리기', hint: '무릎을 높이 들며 제자리에서 달려요!' },
-  goalie:  { emoji: '🧤', name: '골키퍼',       hint: '휘어서 날아오는 공을 손·팔로만 막아요!' },
+  goalie:  { emoji: '🧤', name: '골키퍼',       hint: '골대로 날아오는 공을 온몸으로 막아요!' },
 };
 export const isArcade = (mode) => mode in ARCADE_INFO;
 
@@ -755,7 +755,7 @@ class Race extends Base {
 // ---------------- 🧤 골키퍼 ----------------
 // 선수 뒤에 골대가 있고, 공은 카메라 쪽(앞)에서 크게 날아와 작아지며 골대 안으로 들어간다.
 // 어디로 들어갈지는 미리 표시하지 않고, 지나온 궤적(꼬리)만 보여 준다.
-// 공이 골대 가까이 왔을 때(비행 후반) 손·팔에 닿으면 막는다. 몸통·머리·다리로는 못 막는다.
+// 공이 골대 가까이 왔을 때(비행 후반) 손·팔·몸통·머리·다리 어디든 닿으면 막는다.
 // 스켈레톤은 1P·2P 같은 크기(고정)로 그리고, 위치는 실제로 움직인 만큼(몸통 길이 단위) 따라간다.
 const BLOCK_FROM = 0.82; // 비행의 이 지점부터 막을 수 있음 (골대 가까이 왔을 때만)
 const GK_SLOW = 1.8, GK_FAST = 0.75, GK_RAMP = 0.026; // 공 비행 시간(초): 시작 → 최소, 1초마다 줄어드는 양
@@ -791,7 +791,30 @@ class Goalie extends FixedBase {
     }
     return segs;
   }
-  blocked(i, pt, r) { return this.armsWorld(i).some(([a, c]) => segDist(pt, a, c) < r + 0.03); }
+  // 막기: 팔은 물론 몸통·머리·다리 어디에 맞아도 막은 걸로 친다
+  blocked(i, pt, r) {
+    if (this.armsWorld(i).some(([a, c]) => segDist(pt, a, c) < r + 0.03)) return true;
+    const n = this.fb[i].n, ox = this.fb[i].ox;
+    if (!n) return false;
+    const P = (k) => ({ x: n[k].x + ox, y: n[k].y });
+    const ls = P(LM.lShoulder), rs = P(LM.rShoulder), lh = P(LM.lHip), rh = P(LM.rHip);
+    // 몸통: 어깨·엉덩이 네 점 사이(사각형) 안이거나 테두리에 닿으면
+    const quad = [ls, rs, rh, lh];
+    let inside = false;
+    for (let a = 0, b = 3; a < 4; b = a++) {
+      const A = quad[a], Bq = quad[b];
+      if ((A.y > pt.y) !== (Bq.y > pt.y) && pt.x < ((Bq.x - A.x) * (pt.y - A.y)) / (Bq.y - A.y) + A.x) inside = !inside;
+    }
+    if (inside || quad.some((A, a) => segDist(pt, A, quad[(a + 1) % 4]) < r + 0.03)) return true;
+    // 머리
+    if (n[LM.nose].ok && Math.hypot(pt.x - P(LM.nose).x, pt.y - P(LM.nose).y) < r + 0.26) return true;
+    // 다리 (허벅지 방향으로 이어 그린 정강이 포함)
+    for (const [h, k, a] of [[LM.lHip, LM.lKnee, LM.lAnkle], [LM.rHip, LM.rKnee, LM.rAnkle]]) {
+      if (n[k].show && segDist(pt, P(h), P(k)) < r + 0.08) return true;
+      if (n[k].show && n[a].show && segDist(pt, P(k), P(a)) < r + 0.06) return true;
+    }
+    return false;
+  }
   tick(t, dt, people, W, H, playing) {
     this.observe(people, W, H, dt);
     this.observeFixed(dt);
@@ -919,7 +942,7 @@ class Goalie extends FixedBase {
   }
   detail(i) { return `막음 ${this.sides[i].saves}번 · 골 먹음 ${this.sides[i].goals}번`; }
   scoreText(i) { return `${this.sides[i].saves}번 막음`; }
-  phaseText() { return `공 속도 ×${(GK_SLOW / this.dur(this.t || 0)).toFixed(1)} · 손·팔로만 막아요! 점점 빨라져요`; }
+  phaseText() { return `공 속도 ×${(GK_SLOW / this.dur(this.t || 0)).toFixed(1)} · 온몸으로 막아요! 점점 빨라져요`; }
   simPose() {
     const ball = this.sides[0].ball, f = this.fb[0], n = f.n;
     const rest = { a: [15, 10], g: [3, 2] };
