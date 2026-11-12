@@ -116,7 +116,7 @@ class Base {
       p.inv = Math.max(0, p.inv - dt);
     });
     for (const f of this.fx) f.age += dt;
-    this.fx = this.fx.filter((f) => f.age < 1);
+    this.fx = this.fx.filter((f) => f.age < f.life);
     this.flash = this.flash.map((v) => Math.max(0, v - dt * 2));
   }
   // 생명 -1 (무적이거나 빈 자리면 무시). 깎였으면 true
@@ -130,15 +130,16 @@ class Base {
     if (x != null) this.pop(x, y, '💥', '#ff4d5e');
     return true;
   }
-  pop(x, y, text, color = '#fff') { this.fx.push({ x, y, text, color, age: 0 }); }
+  pop(x, y, text, color = '#fff', life = 1) { this.fx.push({ x, y, text, color, age: 0, life }); }
   drawFx(ctx, W, H) {
     for (const f of this.fx) {
       ctx.save();
-      ctx.globalAlpha = 1 - f.age;
+      const k = f.age / f.life;
+      ctx.globalAlpha = 1 - k;
       ctx.font = `${Math.round(H * 0.06)}px Jua, sans-serif`;
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.lineWidth = 6; ctx.strokeStyle = 'rgba(0,0,0,.6)';
-      const y = f.y - f.age * H * 0.08;
+      const y = f.y - k * H * 0.08;
       ctx.strokeText(f.text, f.x, y);
       ctx.fillStyle = f.color; ctx.fillText(f.text, f.x, y);
       ctx.restore();
@@ -264,8 +265,12 @@ class FixedBase extends Base {
 
 // ---------------- 🎈 풍선 / 💣 폭탄 ----------------
 // 풍선 위치는 고정 좌표(몸통 길이 단위)로 정해서 두 선수에게 완전히 같은 자리에 나온다.
-const B_LIFE = 3.2;   // 풍선이 떠 있는 시간
-const B_ARM = 0.5;    // 폭탄이 나타난 뒤 이 시간 동안은 닿아도 안전 (피할 시간)
+// 풍선은 작은 점에서 부풀어 오르다가 수명이 다하면 '펑' 터지며 사라진다. 부푸는 속도(=수명)는 풍선마다 무작위
+const B_LIFE_MIN = 1.6, B_LIFE_MAX = 3.0;
+const BOMB_LIFE = (B_LIFE_MIN + B_LIFE_MAX) / 2; // 폭탄은 풍선 수명의 평균으로 고정, 다 되면 터지며 사라짐
+const B_ARM = 0.3;    // 폭탄이 나타난 직후 이 시간 동안은 닿아도 안전 (피할 틈)
+const B_GROW0 = 0.12, B_GROW1 = 1.12; // 풍선 크기: 처음(점) → 터지기 직전 (B_R 배)
+const POP_FX = 0.3, BOOM_FX = 0.4;    // 터지는 효과가 보이는 시간 (짧게)
 const B_R = 0.22;     // 풍선 반지름 (몸통 길이 단위)
 const B_GAP = 1.05;   // 폭탄과 풍선 중심 사이 최소 거리 (풍선을 치다가 폭탄을 같이 건드리지 않게)
 const B_GAP_MIN = 0.75; // 팔이 짧으면 풍선 나올 자리가 좁아서 간격을 줄인다 (손 판정 반경 둘을 합친 0.72보다는 크게)
@@ -274,9 +279,16 @@ const B_X = 1.85, B_TOP = -2.7, B_BOT = 1.7; // 풍선이 나올 수 있는 범�
 class Balloon extends FixedBase {
   constructor(o) {
     super(o);
-    this.sides = [0, 1].map(() => ({ r: rng(this.seed), items: [], nextAt: 0.6, pops: 0, bombs: 0 }));
+    this.sides = [0, 1].map(() => ({ r: rng(this.seed), items: [], bursts: [], nextAt: 0.6, pops: 0, bombs: 0 }));
   }
   interval(t) { return Math.max(0.45, 0.95 - t * 0.011); } // 점점 자주 나온다
+  // 풍선 크기 배율 (점 → 부풂). 폭탄은 처음부터 제 크기
+  scaleOf(it) {
+    if (it.type === 'bomb') return 1;
+    const k = clamp(it.age / it.life, 0, 1);
+    return B_GROW0 + (B_GROW1 - B_GROW0) * Math.pow(k, 0.6);
+  }
+  burst(sd, it, kind) { sd.bursts.push({ x: it.x, y: it.y, kind, age: 0, size: this.scaleOf(it) }); }
   // 손끝·발·머리 (고정 좌표)
   hitPoints(i) {
     const n = this.fb[i].n;
@@ -292,7 +304,7 @@ class Balloon extends FixedBase {
     return pts;
   }
   spawn(sd, i) {
-    const u = [sd.r(), sd.r(), sd.r(), sd.r(), sd.r()]; // 몸이 안 보여도 같은 개수를 뽑아 두 선수 순서를 맞춘다
+    const u = [sd.r(), sd.r(), sd.r(), sd.r(), sd.r(), sd.r()]; // 몸이 안 보여도 같은 개수를 뽑아 두 선수 순서를 맞춘다
     if (!this.fb[i].n) return;
     const type = u[0] < 0.22 ? 'bomb' : u[0] < 0.28 ? 'gold' : 'balloon';
     const low = u[1] < 0.2; // 발로 찰 수 있는 낮은 곳
@@ -322,7 +334,8 @@ class Balloon extends FixedBase {
       if (!best || room > bestRoom) { best = { x, y }; bestRoom = room; }
     }
     // 빈자리를 못 찾아도 건너뛰지 않고 가장 넉넉한 자리에 낸다 → 팔이 짧아도 나오는 개수가 같다
-    sd.items.push({ type, x: best.x, y: best.y, age: 0, bob: u[4] * 6 });
+    const life = type === 'bomb' ? BOMB_LIFE : B_LIFE_MIN + u[5] * (B_LIFE_MAX - B_LIFE_MIN);
+    sd.items.push({ type, x: best.x, y: best.y, age: 0, life, bob: u[4] * 6 });
   }
   tick(t, dt, people, W, H, playing) {
     this.observe(people, W, H, dt);
@@ -332,25 +345,35 @@ class Balloon extends FixedBase {
       const p = this.players[i];
       if (p.lives <= 0) { sd.items = []; return; }
       while (t >= sd.nextAt) { this.spawn(sd, i); sd.nextAt += this.interval(sd.nextAt); }
+      for (const bs of sd.bursts) bs.age += dt;
+      sd.bursts = sd.bursts.filter((bs) => bs.age < (bs.kind === 'boom' ? BOOM_FX : POP_FX));
       const pts = this.hitPoints(i);
       for (const it of sd.items) {
         it.age += dt;
+        if (it.age >= it.life) { // 수명 끝: 풍선은 다 부풀어 펑, 폭탄은 쾅 (점수·벌점 없음)
+          it.dead = true;
+          this.burst(sd, it, it.type === 'bomb' ? 'boom' : 'pop');
+          continue;
+        }
         if (!pts.length) continue;
-        const near = (h) => Math.hypot(h.x - it.x, h.y - it.y) < B_R + 0.14;
+        const reach = B_R * this.scaleOf(it) + 0.14; // 풍선이 작을 때는 맞히기 조금 더 어렵다
+        const near = (h) => Math.hypot(h.x - it.x, h.y - it.y) < reach;
         const sc = this.toScreen(i, W, H, it.x, it.y);
         if (it.type === 'bomb') {
-          if (it.age > B_ARM && pts.some(near) && this.hurt(i, '폭탄에 닿았어요', sc.x, sc.y)) {
+          if (it.age > B_ARM && pts.some(near) && this.hurt(i, '폭탄에 닿았어요')) {
             it.dead = true; sd.bombs++; sfx.boom();
+            this.burst(sd, it, 'boom');
           }
         } else if (pts.some((h) => !h.head && near(h))) {
           it.dead = true;
           const got = it.type === 'gold' ? 30 : 10;
           p.score += got; sd.pops++;
-          this.pop(sc.x, sc.y, `+${got}`, it.type === 'gold' ? '#ffd84d' : '#fff');
+          this.burst(sd, it, 'pop');
+          this.pop(sc.x, sc.y - H * 0.03, `+${got}`, it.type === 'gold' ? '#ffd84d' : '#fff', 0.6);
           sfx.pop();
         }
       }
-      sd.items = sd.items.filter((it) => !it.dead && it.age < B_LIFE);
+      sd.items = sd.items.filter((it) => !it.dead);
     });
   }
   draw(ctx, W, H) {
@@ -358,19 +381,35 @@ class Balloon extends FixedBase {
     this.sides.forEach((sd, i) => {
       this.drawBackdrop(ctx, W, H, i);
       for (const it of sd.items) {
-        const fadeIn = Math.min(1, it.age / 0.15);
-        const fadeOut = it.age > B_LIFE - 0.6 ? (Math.sin(it.age * 30) > 0 ? 0.35 : 0.9) : 1;
-        const c = this.toScreen(i, W, H, it.x, it.y + Math.sin(it.age * 3 + it.bob) * B_R * 0.1);
-        if (it.type === 'bomb') {
-          const armed = it.age > B_ARM;
+        const left = it.life - it.age;
+        if (it.type === 'bomb') { // 폭탄: 바로 제 크기로 '뿅'. 터지기 직전에 살짝 떨린다
+          const shake = left < 0.35 ? Math.sin(it.age * 60) * r * 0.08 : 0;
+          const c = this.toScreen(i, W, H, it.x, it.y);
+          emoji(ctx, '💣', c.x + shake, c.y, r * 2.2);
+          continue;
+        }
+        // 풍선: 점에서 부풀어 오름. 다 부풀 즈음 부르르 떨다가 터진다
+        const sc = this.scaleOf(it);
+        const wob = left < 0.3 ? 1 + Math.sin(it.age * 70) * 0.06 : 1;
+        const c = this.toScreen(i, W, H, it.x, it.y + Math.sin(it.age * 3 + it.bob) * B_R * 0.08);
+        emoji(ctx, it.type === 'gold' ? '🌟' : '🎈', c.x, c.y, r * 2.3 * sc * wob);
+      }
+      // 터지는 효과: 풍선 → 별이 반짝 튀었다가 빠르게 사라짐 / 폭탄 → 쾅
+      for (const bs of sd.bursts) {
+        const c = this.toScreen(i, W, H, bs.x, bs.y);
+        if (bs.kind === 'pop') {
+          const k = bs.age / POP_FX;
+          emoji(ctx, '⭐', c.x, c.y, r * 2 * bs.size * (0.6 + 0.9 * k), 1 - k);
           ctx.save();
-          ctx.globalAlpha = fadeIn * (armed ? 0.5 : 0.25);
-          ctx.fillStyle = '#ff4d5e';
-          ctx.beginPath(); ctx.arc(c.x, c.y, r * 1.25, 0, Math.PI * 2); ctx.fill();
+          ctx.fillStyle = `rgba(255,216,77,${1 - k})`;
+          for (let a = 0; a < 8; a++) { // 사방으로 튀는 반짝이
+            const ang = (a / 8) * Math.PI * 2, d = r * (0.6 + 1.6 * k) * Math.max(0.6, bs.size);
+            ctx.beginPath(); ctx.arc(c.x + Math.cos(ang) * d, c.y + Math.sin(ang) * d, r * 0.12 * (1 - k), 0, Math.PI * 2); ctx.fill();
+          }
           ctx.restore();
-          emoji(ctx, '💣', c.x, c.y, r * 2.2, fadeIn * fadeOut * (armed ? 1 : 0.5));
         } else {
-          emoji(ctx, it.type === 'gold' ? '🌟' : '🎈', c.x, c.y, r * 2.3, fadeIn * fadeOut);
+          const k = bs.age / BOOM_FX;
+          emoji(ctx, '💥', c.x, c.y, r * 2.4 * (0.8 + 0.9 * k), 1 - k * k);
         }
       }
       this.drawFixedSkeleton(ctx, W, H, i, false);
