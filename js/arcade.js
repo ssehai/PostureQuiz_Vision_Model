@@ -730,12 +730,15 @@ class Race extends Base {
 // 공이 멀리서 휘어지며 날아온다. 어디로 떨어질지는 미리 표시하지 않고, 지나온 궤적(꼬리)만 보여 준다.
 // 공이 몸 가까이 왔을 때(비행 후반) 손·팔에 닿으면 막는다. 몸통·머리·다리로는 못 막는다.
 const BLOCK_FROM = 0.82; // 비행의 이 지점부터 막을 수 있음 (몸 가까이 왔을 때만)
+const GK_SLOW = 1.8, GK_FAST = 0.75, GK_RAMP = 0.026; // 공 비행 시간(초): 시작 → 최소, 1초마다 줄어드는 양
 class Goalie extends Base {
   constructor(o) {
     super(o);
     this.sides = [0, 1].map(() => ({ r: rng(this.seed), ball: null, nextAt: 1.2, saves: 0, goals: 0 }));
   }
-  dur(t) { return Math.max(0.6, 1.05 - t * 0.01); } // 시간이 갈수록 공이 빨라진다
+  // 공이 날아오는 시간: 처음 1.8초로 느긋하게 → 40초쯤 0.75초까지 점점 빨라진다 (두 선수 같음)
+  dur(t) { return Math.max(GK_FAST, GK_SLOW - t * GK_RAMP); }
+  gap(t) { return Math.max(0.4, 0.8 - t * 0.01); } // 공과 공 사이 쉬는 시간도 처음엔 넉넉하게
   pos(ball, k) { // 2차 베지어 곡선 (휘어지는 슛)
     const a = (1 - k) ** 2, b = 2 * (1 - k) * k, c = k * k;
     return { x: a * ball.sx + b * ball.cx + c * ball.tx, y: a * ball.sy + b * ball.cy + c * ball.ty };
@@ -748,6 +751,7 @@ class Goalie extends Base {
   tick(t, dt, people, W, H, playing) {
     this.observe(people, W, H, dt);
     if (!playing) return;
+    this.t = t;
     this.sides.forEach((sd, i) => {
       const p = this.players[i];
       if (p.lives <= 0) { sd.ball = null; return; }
@@ -790,7 +794,7 @@ class Goalie extends Base {
       } else {
         ball.after += dt;
         if (ball.trail.length) ball.trail.shift();
-        if (ball.after > 0.5) { sd.ball = null; sd.nextAt = t + 0.4; }
+        if (ball.after > 0.5) { sd.ball = null; sd.nextAt = t + this.gap(t); }
       }
     });
   }
@@ -824,7 +828,7 @@ class Goalie extends Base {
   }
   detail(i) { return `막음 ${this.sides[i].saves}번 · 골 먹음 ${this.sides[i].goals}번`; }
   scoreText(i) { return `${this.sides[i].saves}번 막음`; }
-  phaseText() { return '휘어서 날아오는 공을 손·팔로 막아요! 몸으로는 못 막아요'; }
+  phaseText() { return `공 속도 ×${(GK_SLOW / this.dur(this.t || 0)).toFixed(1)} · 손·팔로만 막아요! 점점 빨라져요`; }
   simPose() {
     const ball = this.sides[0].ball, p = this.players[0];
     const rest = { a: [15, 10], g: [3, 2] };
