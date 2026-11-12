@@ -1,0 +1,422 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AI 바디 배틀 UI 시안</title>
+<link href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=Jua&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --ink: #1b1440; --night: #1a1240; --night2: #2a1d66; --gold: #ffd84d; --gold2: #ffb020;
+    --pink: #ff4fa3; --cyan: #3ee6ff; --lime: #7dff6b; --red: #ff4d5e; --white: #fff;
+    --p1: #ffcf3a; --p2: #3ee6ff;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #0d0a24; color: #fff; font-family: 'Jua', sans-serif; padding: 28px 16px 60px; }
+  .doc-title { text-align: center; font-family: 'Black Han Sans'; font-size: 34px; margin: 0 0 6px; letter-spacing: 1px; }
+  .doc-sub { text-align: center; color: #b9b2e6; margin: 0 0 28px; font-size: 17px; }
+  .scene { max-width: 1040px; margin: 0 auto 46px; }
+  .scene h2 { font-family: 'Black Han Sans'; font-weight: 400; font-size: 24px; margin: 0 0 4px; color: var(--gold); }
+  .scene .note { color: #c9c3f0; font-size: 15px; margin: 0 0 12px; line-height: 1.6; }
+  .scene .note b { color: #fff; font-weight: 400; background: rgba(255,255,255,.1); padding: 0 6px; border-radius: 6px; }
+  .frame { position: relative; width: 100%; aspect-ratio: 16 / 9; border-radius: 18px; overflow: hidden;
+    background: radial-gradient(ellipse at 50% -10%, #5b3fd6 0%, #2a1d66 38%, #140d38 75%); box-shadow: 0 18px 50px rgba(0,0,0,.55), inset 0 0 0 3px rgba(255,255,255,.06); }
+  /* 공통 배경 장식 */
+  .rays { position: absolute; inset: -40%; background: repeating-conic-gradient(from 0deg at 50% 50%, rgba(255,255,255,.05) 0 6deg, transparent 6deg 18deg); animation: spin 60s linear infinite; }
+  .dots { position: absolute; inset: 0; background-image: radial-gradient(rgba(255,255,255,.12) 1.2px, transparent 1.4px); background-size: 26px 26px; opacity: .5; }
+  .stage-floor { position: absolute; left: 0; right: 0; bottom: 0; height: 26%; background: linear-gradient(180deg, transparent, rgba(0,0,0,.35)); }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes bob { 50% { transform: translateY(-6px); } }
+  @keyframes pulse { 50% { transform: scale(1.06); } }
+  @keyframes twinkle { 50% { opacity: .2; transform: scale(.7); } }
+  .spark { position: absolute; color: #fff; text-shadow: 0 0 10px #fff, 0 0 20px var(--gold); animation: twinkle 1.6s ease-in-out infinite; }
+
+  /* 버튼: 젤리처럼 두툼한 3D 버튼 */
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 10px; font-family: 'Black Han Sans'; font-size: 26px; color: #fff;
+    padding: 14px 34px 16px; border-radius: 22px; border: 3px solid rgba(255,255,255,.55); position: relative; letter-spacing: .5px;
+    text-shadow: 0 2px 0 rgba(0,0,0,.35); cursor: pointer; transform: translateY(0); }
+  .btn::after { content: ''; position: absolute; left: 10px; right: 10px; top: 5px; height: 38%; border-radius: 16px; background: linear-gradient(rgba(255,255,255,.55), rgba(255,255,255,0)); }
+  .btn-go { background: linear-gradient(#ffb347, #ff6b2c); box-shadow: 0 8px 0 #b33a0c, 0 14px 24px rgba(0,0,0,.4); }
+  .btn-blue { background: linear-gradient(#5ad7ff, #2a7bff); box-shadow: 0 8px 0 #1546a6, 0 14px 24px rgba(0,0,0,.4); }
+  .btn-green { background: linear-gradient(#8bff7a, #22c25a); box-shadow: 0 8px 0 #157a34, 0 14px 24px rgba(0,0,0,.4); }
+  .btn-ghost { background: linear-gradient(#6c5bd9, #4a3aad); box-shadow: 0 6px 0 #2c2175, 0 10px 18px rgba(0,0,0,.35); font-size: 18px; padding: 10px 20px 12px; }
+  .btn.small { font-size: 18px; padding: 9px 18px 11px; border-radius: 16px; }
+  .key { font-family: 'Jua'; font-size: 14px; background: rgba(0,0,0,.28); border-radius: 8px; padding: 2px 8px; border: 1px solid rgba(255,255,255,.4); }
+
+  /* 로고 */
+  .logo { font-family: 'Black Han Sans'; line-height: 1; text-align: center; }
+  .logo .l1 { font-size: 30px; color: #fff; text-shadow: 0 3px 0 #6a2bd6, 0 0 18px rgba(255,255,255,.4); }
+  .logo .l2 { font-size: 78px; background: linear-gradient(180deg, #fff6b0 0%, #ffd84d 45%, #ff9a1f 100%); -webkit-background-clip: text; color: transparent;
+    -webkit-text-stroke: 3px #3b1a8f; filter: drop-shadow(0 6px 0 #3b1a8f) drop-shadow(0 0 22px rgba(255,190,60,.55)); letter-spacing: 2px; }
+
+  /* 패널·카드 */
+  .glass { background: linear-gradient(180deg, rgba(255,255,255,.16), rgba(255,255,255,.06)); border: 2px solid rgba(255,255,255,.25); border-radius: 22px; backdrop-filter: blur(6px); }
+  .chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; border-radius: 999px; background: rgba(0,0,0,.35); border: 2px solid rgba(255,255,255,.25); font-size: 16px; }
+  .chip.on { background: linear-gradient(#ffe37a, #ffb020); color: #4a2a00; border-color: #fff3b0; box-shadow: 0 4px 0 #a86a00; }
+
+  /* 팀 방패 */
+  .shield { width: 46px; height: 52px; clip-path: polygon(50% 0, 100% 16%, 100% 58%, 50% 100%, 0 58%, 0 16%); display: flex; align-items: center; justify-content: center; font-size: 24px; }
+
+  /* 점수판 행 */
+  .rank { display: flex; align-items: center; gap: 12px; padding: 8px 14px; border-radius: 16px; margin-bottom: 8px; background: rgba(0,0,0,.25); border: 2px solid rgba(255,255,255,.12); }
+  .rank .no { font-family: 'Black Han Sans'; font-size: 26px; width: 34px; text-align: center; }
+  .rank .nm { flex: 1; font-size: 20px; }
+  .rank .sc { font-family: 'Black Han Sans'; font-size: 26px; color: var(--gold); }
+  .bar { height: 8px; border-radius: 99px; background: rgba(255,255,255,.12); overflow: hidden; margin-top: 4px; }
+  .bar > i { display: block; height: 100%; border-radius: 99px; }
+
+  /* 설명 말풍선 (시안 주석) */
+  .call { position: absolute; z-index: 20; background: #fff; color: var(--ink); font-size: 13px; line-height: 1.35; padding: 6px 10px; border-radius: 10px; max-width: 190px; box-shadow: 0 4px 0 rgba(0,0,0,.25); }
+  .call::before { content: attr(data-n); display: inline-flex; width: 18px; height: 18px; border-radius: 50%; background: var(--pink); color: #fff; align-items: center; justify-content: center; font-size: 12px; margin-right: 6px; vertical-align: 1px; }
+
+  /* 플레이 화면 요소 */
+  .half { position: absolute; top: 0; bottom: 24%; width: 50%; overflow: hidden; }
+  .half.l { left: 0; background: radial-gradient(ellipse at 50% 30%, rgba(255,207,58,.12), transparent 60%); }
+  .half.r { right: 0; background: radial-gradient(ellipse at 50% 30%, rgba(62,230,255,.12), transparent 60%); }
+  .divider { position: absolute; left: 50%; top: 0; bottom: 24%; width: 0; border-left: 4px dashed rgba(255,255,255,.25); }
+  .bottom-strip { position: absolute; left: 0; right: 0; bottom: 0; height: 24%; display: grid; grid-template-columns: 1fr 230px 1fr; gap: 10px; padding: 10px; background: linear-gradient(180deg, rgba(10,6,30,.4), rgba(10,6,30,.85)); }
+  .pcard { border-radius: 18px; padding: 8px 14px; display: flex; flex-direction: column; justify-content: center; gap: 4px; border: 3px solid; background: linear-gradient(180deg, rgba(255,255,255,.12), rgba(255,255,255,.03)); }
+  .pcard .top { display: flex; align-items: baseline; gap: 10px; }
+  .pcard .name { font-family: 'Black Han Sans'; font-size: 26px; }
+  .pcard .team { font-size: 14px; padding: 2px 8px; border-radius: 99px; }
+  .pcard .score { margin-left: auto; font-family: 'Black Han Sans'; font-size: 34px; }
+  .hearts { font-size: 22px; letter-spacing: 2px; }
+  .timer { border-radius: 18px; display: flex; flex-direction: column; align-items: center; justify-content: center; background: linear-gradient(180deg, #ff6b6b, #c2185b); border: 3px solid #ffd0e0; box-shadow: 0 6px 0 #7a0f3a; }
+  .timer b { font-family: 'Black Han Sans'; font-weight: 400; font-size: 54px; line-height: 1; text-shadow: 0 3px 0 rgba(0,0,0,.3); }
+  .timer small { font-size: 14px; opacity: .9; }
+  .skeleton line, .skeleton circle { stroke-linecap: round; }
+  .combo { font-family: 'Black Han Sans'; font-size: 40px; color: #fff; -webkit-text-stroke: 2px #b3001b; text-shadow: 0 4px 0 #b3001b, 0 0 20px #ff6b4a; transform: rotate(-6deg); animation: pulse .7s ease-in-out infinite; display: inline-block; }
+  .pop { position: absolute; font-family: 'Black Han Sans'; font-size: 30px; color: #fff3a0; -webkit-text-stroke: 1.5px #a35a00; text-shadow: 0 3px 0 #a35a00; }
+  .fever { position: absolute; inset: 0; box-shadow: inset 0 0 80px 20px rgba(255,120,30,.55); border-radius: 18px; pointer-events: none; }
+  .wheel { width: 330px; height: 330px; border-radius: 50%; position: relative;
+    background: conic-gradient(#ff6b4a 0 72deg, #ffb020 72deg 144deg, #3d8bff 144deg 216deg, #18c48f 216deg 288deg, #9b59ff 288deg 360deg);
+    border: 10px solid #ffd84d; box-shadow: 0 0 0 8px #7a3dff, 0 0 40px 10px rgba(255,216,77,.5), inset 0 0 0 6px rgba(255,255,255,.25); }
+  .bulb { position: absolute; width: 14px; height: 14px; border-radius: 50%; background: #fff7c2; box-shadow: 0 0 10px 3px #ffe066; }
+  .confetti i { position: absolute; width: 10px; height: 16px; border-radius: 2px; }
+</style>
+</head>
+<body>
+<h1 class="doc-title">🎮 AI 바디 배틀 · 화면 시안</h1>
+<p class="doc-sub">컨셉: <b style="color:#fff">"밤의 게임쇼 무대"</b> — 보랏빛 무대 조명 + 금빛 로고 + 말랑한 젤리 버튼. 분홍 번호(①②…)는 설명용 주석이에요.</p>
+
+<!-- ================= 1. 타이틀 / 설정 ================= -->
+<section class="scene">
+  <h2>① 타이틀 · 게임 설정</h2>
+  <p class="note">처음 켜면 나오는 화면. 로고가 통통 튀고, 뒤에서 무대 조명이 천천히 돌아요. 설정은 드롭다운 대신 <b>누르는 칩 버튼</b>으로 바꿔서 아이들 앞에서도 한 번에 고를 수 있게.</p>
+  <div class="frame">
+    <div class="rays"></div><div class="dots"></div>
+    <span class="spark" style="left:12%;top:14%;font-size:22px">✦</span>
+    <span class="spark" style="left:84%;top:20%;font-size:28px;animation-delay:.5s">✦</span>
+    <span class="spark" style="left:76%;top:62%;font-size:18px;animation-delay:1s">✦</span>
+    <span class="spark" style="left:20%;top:70%;font-size:16px;animation-delay:.3s">✦</span>
+
+    <div style="position:absolute;left:0;right:0;top:7%;animation:bob 2.4s ease-in-out infinite">
+      <div class="logo"><div class="l1">내 몸이 컨트롤러!</div><div class="l2">AI 바디 배틀</div></div>
+    </div>
+    <div style="position:absolute;left:6%;top:42%;font-size:56px;animation:bob 2s ease-in-out infinite">🕺</div>
+    <div style="position:absolute;right:6%;top:40%;font-size:56px;animation:bob 2.2s ease-in-out infinite .4s">🎈</div>
+
+    <div class="glass" style="position:absolute;left:14%;right:14%;top:40%;padding:16px 20px">
+      <div style="display:flex;gap:18px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
+        <span style="width:84px;color:#d9d3ff">게임</span>
+        <span class="chip on">🎰 돌림판</span><span class="chip">💃 막춤</span><span class="chip">🎈 풍선</span><span class="chip">🧱 벽</span><span class="chip">🏃 달리기</span><span class="chip">🧤 골키퍼</span>
+      </div>
+      <div style="display:flex;gap:18px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
+        <span style="width:84px;color:#d9d3ff">팀</span>
+        <span class="chip on">🐯 호랑이</span><span class="chip on">🦅 독수리</span><span class="chip">🐬 돌고래</span><span class="chip">🐼 판다</span>
+        <span style="margin-left:auto;color:#d9d3ff">난이도</span><span class="chip">쉬움</span><span class="chip on">보통</span><span class="chip">어려움</span>
+      </div>
+      <div style="display:flex;gap:14px;justify-content:center;margin-top:8px">
+        <span class="btn btn-go">📷 게임 시작!</span>
+        <span class="btn btn-ghost">✏️ 팀원 이름 입력</span>
+        <span class="btn btn-ghost">⚙️ 카메라</span>
+      </div>
+    </div>
+    <div class="call" data-n="1" style="left:63%;top:3%">로고: 금빛 입체 글자 + 위아래로 둥실</div>
+    <div class="call" data-n="2" style="left:2%;top:86%">버튼: 아래로 두툼한 그림자 → 누르면 쑥 들어가며 "뿅" 효과음</div>
+    <div class="call" data-n="3" style="left:70%;top:86%">팀원 이름은 별도 팝업 창으로 분리</div>
+  </div>
+</section>
+
+<!-- ================= 2. 대기실 ================= -->
+<section class="scene">
+  <h2>② 대기실 · 다음 대결</h2>
+  <p class="note">왼쪽은 팀 순위표(평균 점수 막대), 가운데는 <b>격투 게임식 VS 매치업 카드</b>(선수 이름 위에 소속 팀 방패 아이콘). 선수를 뽑을 때 이름이 슬롯머신처럼 돌다가 "착!" 멈춰요.</p>
+  <div class="frame">
+    <div class="dots"></div>
+    <div class="glass" style="position:absolute;left:3%;top:6%;bottom:6%;width:30%;padding:16px">
+      <div style="font-family:'Black Han Sans';font-size:24px;margin-bottom:10px">🏆 팀 순위</div>
+      <div class="rank" style="border-color:#ffd84d;background:rgba(255,216,77,.15)"><span class="no">👑</span><span class="nm">🐯 호랑이팀<div class="bar"><i style="width:78%;background:linear-gradient(90deg,#ffd84d,#ff9a1f)"></i></div></span><span class="sc">78</span></div>
+      <div class="rank"><span class="no">2</span><span class="nm">🦅 독수리팀<div class="bar"><i style="width:64%;background:linear-gradient(90deg,#5ad7ff,#2a7bff)"></i></div></span><span class="sc">64</span></div>
+      <div class="rank"><span class="no">3</span><span class="nm">🐬 돌고래팀<div class="bar"><i style="width:51%;background:linear-gradient(90deg,#8bff7a,#22c25a)"></i></div></span><span class="sc">51</span></div>
+      <div style="font-size:14px;color:#c9c3f0;margin-top:12px">최근: 🎈 지우 +72 승 · 🧱 민수 +54 · 🧤 서연 +88 승</div>
+    </div>
+
+    <div style="position:absolute;left:36%;right:3%;top:8%;text-align:center">
+      <div class="chip" style="font-size:18px">1라운드 · 남은 선수 18명</div>
+    </div>
+    <div style="position:absolute;left:36%;right:3%;top:22%;bottom:30%;display:flex;align-items:center;justify-content:center;gap:0">
+      <div style="flex:1;height:100%;border-radius:24px 0 0 24px;background:linear-gradient(135deg,#ffcf3a,#ff8a00);clip-path:polygon(0 0,100% 0,88% 100%,0 100%);display:flex;flex-direction:column;align-items:center;justify-content:center;border:4px solid #fff3b0">
+        <div style="font-size:16px;color:#5a2d00">⬅ 왼쪽 · 🐯 호랑이팀</div>
+        <div class="shield" style="width:84px;height:94px;font-size:48px;background:linear-gradient(#fff3b0,#ffb020);box-shadow:inset 0 -6px 0 rgba(0,0,0,.15);margin:4px 0">🐯</div>
+        <div style="font-family:'Black Han Sans';font-size:42px;color:#3b1a00">지우</div>
+      </div>
+      <div style="position:relative;width:0;z-index:3">
+        <div style="position:absolute;left:-58px;top:-58px;width:116px;height:116px;border-radius:50%;background:radial-gradient(circle,#fff 0%,#ffe066 35%,#ff4fa3 80%);display:flex;align-items:center;justify-content:center;font-family:'Black Han Sans';font-size:48px;color:#fff;-webkit-text-stroke:2px #7a0f3a;box-shadow:0 0 40px 10px rgba(255,79,163,.7);animation:pulse .9s ease-in-out infinite">VS</div>
+        <div style="position:absolute;left:-12px;top:-150px;font-size:60px;transform:rotate(15deg)">⚡</div>
+      </div>
+      <div style="flex:1;height:100%;border-radius:0 24px 24px 0;background:linear-gradient(225deg,#3ee6ff,#2a6bff);clip-path:polygon(12% 0,100% 0,100% 100%,0 100%);display:flex;flex-direction:column;align-items:center;justify-content:center;border:4px solid #c8f6ff">
+        <div style="font-size:16px;color:#002a5c">🦅 독수리팀 · 오른쪽 ➡</div>
+        <div class="shield" style="width:84px;height:94px;font-size:48px;background:linear-gradient(#e0fbff,#3ee6ff);box-shadow:inset 0 -6px 0 rgba(0,0,0,.15);margin:4px 0">🦅</div>
+        <div style="font-family:'Black Han Sans';font-size:42px;color:#00264d">서연</div>
+      </div>
+    </div>
+    <div style="position:absolute;left:36%;right:3%;bottom:13%;display:flex;justify-content:center;gap:28px">
+      <span class="chip" style="border-color:#7dff6b;color:#c8ffbf">✅ 왼쪽 선수 보여요</span>
+      <span class="chip" style="border-color:#ff9aa6;color:#ffd0d6;animation:pulse 1s infinite">⏳ 오른쪽 선수를 찾는 중</span>
+    </div>
+    <div style="position:absolute;left:36%;right:3%;bottom:3%;display:flex;justify-content:center;gap:16px">
+      <span class="btn btn-blue small">🎲 다시 뽑기 <span class="key">R</span></span>
+      <span class="btn btn-go" style="font-size:24px">🎰 돌림판 돌리기! <span class="key">Space</span></span>
+    </div>
+    <div class="call" data-n="1" style="left:70%;top:6%">VS 카드: 양쪽에서 슉 날아와 쾅! 부딪히며 등장</div>
+    <div class="call" data-n="3" style="left:37%;top:71%">선수 위에는 소속 팀 방패 아이콘</div>
+    <div class="call" data-n="2" style="left:3%;top:88%">1위 팀에 왕관 + 금색 테두리</div>
+  </div>
+</section>
+
+<!-- ================= 3. 돌림판 ================= -->
+<section class="scene">
+  <h2>③ 돌림판</h2>
+  <p class="note">테두리에 <b>전구가 깜빡이는</b> 게임쇼 돌림판. 돌 때 "따다닥" 소리, 멈추면 해당 칸이 번쩍이고 게임 이름이 크게 쾅 떨어져요.</p>
+  <div class="frame" style="background:radial-gradient(circle at 50% 55%, #6a3cff 0%, #2a1466 45%, #0e0828 80%)">
+    <div class="rays" style="animation-duration:20s"></div>
+    <div style="position:absolute;left:50%;top:53%;transform:translate(-50%,-50%)">
+      <div class="wheel">
+        <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center"><div style="width:74px;height:74px;border-radius:50%;background:radial-gradient(circle,#fff,#ffd84d);border:5px solid #7a3dff;display:flex;align-items:center;justify-content:center;font-size:30px">🎰</div></div>
+        <div style="position:absolute;left:50%;top:9%;transform:translateX(-50%);font-size:34px">💃</div>
+        <div style="position:absolute;right:9%;top:33%;font-size:34px">🎈</div>
+        <div style="position:absolute;right:20%;bottom:10%;font-size:34px">🧱</div>
+        <div style="position:absolute;left:20%;bottom:10%;font-size:34px">🏃</div>
+        <div style="position:absolute;left:9%;top:33%;font-size:34px">🧤</div>
+      </div>
+      <script>
+        document.currentScript.parentElement.querySelector('.wheel').insertAdjacentHTML('beforeend',
+          Array.from({length:20},(_,k)=>{const a=k/20*Math.PI*2;return `<span class="bulb" style="left:${50+52*Math.cos(a)}%;top:${50+52*Math.sin(a)}%;transform:translate(-50%,-50%);animation:twinkle .8s ${k%2?'.4s':'0s'} infinite"></span>`}).join(''));
+      </script>
+      <div style="position:absolute;left:50%;top:-34px;transform:translateX(-50%);width:0;height:0;border-left:22px solid transparent;border-right:22px solid transparent;border-top:44px solid #fff;filter:drop-shadow(0 4px 0 #7a3dff)"></div>
+    </div>
+    <div style="position:absolute;left:0;right:0;top:5%;text-align:center">
+      <div class="logo"><div class="l2" style="font-size:54px">🎈 풍선 터뜨리기!</div></div>
+    </div>
+    <div class="call" data-n="1" style="left:68%;top:40%">멈춘 칸만 밝게, 나머지는 어둡게</div>
+    <div class="call" data-n="2" style="left:4%;top:78%">결과 글자가 위에서 쾅 떨어지며 화면이 살짝 흔들림</div>
+  </div>
+</section>
+
+<!-- ================= 4. 플레이 HUD (풍선) ================= -->
+<section class="scene">
+  <h2>④ 게임 중 화면 (예: 풍선 터뜨리기, 피버 타임)</h2>
+  <p class="note">아래 띠는 <b>게임기 UI</b>처럼: 선수 카드(이름·하트·점수) + 가운데 큰 타이머. 터질 때 별 파티클, <b>황금 별은 하늘에서 별똥별처럼 떨어지고 3번 쳐야 깨져요</b>(깨지면 큰 점수). 콤보는 기울어진 큰 글자, 피버 타임엔 화면 가장자리가 주황빛으로 일렁여요.</p>
+  <div class="frame" style="background:linear-gradient(180deg,#1d1546,#120c30)">
+    <div class="half l"></div><div class="half r"></div><div class="divider"></div>
+    <div class="fever"></div>
+    <!-- 선수 스켈레톤 -->
+    <svg class="skeleton" viewBox="0 0 1000 560" style="position:absolute;inset:0;width:100%;height:100%">
+      <g stroke="#ffcf3a" stroke-width="9" fill="none" style="filter:drop-shadow(0 0 8px rgba(255,207,58,.8))">
+        <circle cx="250" cy="120" r="24"/>
+        <line x1="215" y1="160" x2="285" y2="160"/><line x1="215" y1="160" x2="225" y2="270"/><line x1="285" y1="160" x2="275" y2="270"/><line x1="225" y1="270" x2="275" y2="270"/>
+        <line x1="215" y1="160" x2="160" y2="105"/><line x1="160" y1="105" x2="140" y2="45"/>
+        <line x1="285" y1="160" x2="345" y2="190"/><line x1="345" y1="190" x2="395" y2="170"/>
+        <line x1="225" y1="270" x2="205" y2="345"/><line x1="205" y1="345" x2="200" y2="415"/><line x1="275" y1="270" x2="300" y2="345"/><line x1="300" y1="345" x2="320" y2="410"/>
+      </g>
+      <g stroke="#3ee6ff" stroke-width="9" fill="none" style="filter:drop-shadow(0 0 8px rgba(62,230,255,.8))">
+        <circle cx="760" cy="120" r="24"/>
+        <line x1="725" y1="160" x2="795" y2="160"/><line x1="725" y1="160" x2="735" y2="270"/><line x1="795" y1="160" x2="785" y2="270"/><line x1="735" y1="270" x2="785" y2="270"/>
+        <line x1="725" y1="160" x2="680" y2="210"/><line x1="680" y1="210" x2="650" y2="160"/>
+        <line x1="795" y1="160" x2="850" y2="110"/><line x1="850" y1="110" x2="880" y2="55"/>
+        <line x1="735" y1="270" x2="725" y2="345"/><line x1="725" y1="345" x2="720" y2="415"/><line x1="785" y1="270" x2="800" y2="345"/><line x1="800" y1="345" x2="805" y2="415"/>
+      </g>
+    </svg>
+    <!-- 풍선·폭탄·파티클 -->
+    <div style="position:absolute;left:11%;top:4%;font-size:40px">💥</div>
+    <div style="position:absolute;left:10%;top:2%;width:90px;height:90px;border-radius:50%;background:radial-gradient(circle,rgba(255,240,150,.9),transparent 65%)"></div>
+    <div class="pop" style="left:16%;top:-1%">+20</div>
+    <span class="spark" style="left:8%;top:12%;font-size:18px">✦</span><span class="spark" style="left:18%;top:10%;font-size:14px">✦</span>
+    <div style="position:absolute;left:38%;top:12%;font-size:44px;animation:bob 1.6s infinite">🎈</div>
+    <div style="position:absolute;left:43.5%;top:47%;width:170px;height:10px;border-radius:99px;transform:rotate(-40deg);transform-origin:left center;background:linear-gradient(90deg,rgba(255,240,150,.95),rgba(255,200,60,.4) 40%,transparent);filter:blur(1px)"></div>
+    <div style="position:absolute;left:39.5%;top:40%;font-size:46px;filter:drop-shadow(0 0 12px #ffe066)">🌟</div>
+    <div style="position:absolute;left:39.6%;top:54%;display:flex;gap:4px">
+      <span style="width:14px;height:14px;border-radius:50%;background:#ffd84d;box-shadow:0 0 8px #ffd84d"></span>
+      <span style="width:14px;height:14px;border-radius:50%;background:#ffd84d;box-shadow:0 0 8px #ffd84d"></span>
+      <span style="width:14px;height:14px;border-radius:50%;border:2px solid #ffd84d"></span>
+    </div>
+    <div style="position:absolute;left:38%;top:37%;font-size:20px;color:#fff;transform:rotate(-12deg)">⚡</div>
+    <div style="position:absolute;left:4%;top:40%;font-size:34px">💣</div>
+    <div style="position:absolute;left:62%;top:26%;font-size:40px;animation:bob 1.4s infinite">🎈</div>
+    <div style="position:absolute;left:90%;top:8%;font-size:34px">🎈</div>
+    <div style="position:absolute;left:58%;top:52%;font-size:30px;opacity:.5">🎈</div><div style="position:absolute;left:61%;top:52%;font-size:30px">🎈</div>
+    <!-- 콤보·피버 -->
+    <div style="position:absolute;left:17%;top:26%"><span class="combo">12 COMBO! ×2.0</span></div>
+    <div style="position:absolute;left:50%;top:3%;transform:translateX(-50%);font-family:'Black Han Sans';font-size:30px;padding:6px 20px;border-radius:999px;background:linear-gradient(90deg,#ff3d00,#ffb300,#ff3d00);border:3px solid #fff3b0;box-shadow:0 0 30px rgba(255,140,0,.8);animation:pulse .6s infinite">🔥 FEVER TIME 🔥</div>
+    <!-- 아래 띠 -->
+    <div class="bottom-strip">
+      <div class="pcard" style="border-color:#ffcf3a;box-shadow:0 0 18px rgba(255,207,58,.35)">
+        <div class="top"><span class="name" style="color:#ffcf3a">지우</span><span class="team" style="background:#ff8a00;color:#3b1a00">🐯 호랑이팀</span><span class="score" style="color:#ffcf3a">340</span></div>
+        <div class="hearts">❤️❤️🤍</div>
+        <div style="font-size:15px;color:#ffe9a8">🔥 콤보 중! 계속 터뜨려요</div>
+      </div>
+      <div class="timer"><small>남은 시간</small><b>08</b><small>🎈 풍선 터뜨리기</small></div>
+      <div class="pcard" style="border-color:#3ee6ff">
+        <div class="top"><span class="name" style="color:#3ee6ff">서연</span><span class="team" style="background:#2a6bff;color:#e6f4ff">🦅 독수리팀</span><span class="score" style="color:#3ee6ff">295</span></div>
+        <div class="hearts">❤️❤️❤️</div>
+        <div style="font-size:15px;color:#c8f6ff">좋아요! 계속! 💪</div>
+      </div>
+    </div>
+    <div class="call" data-n="1" style="left:22%;top:8%">펑! 하면 빛 + 별 파티클 + 점수 숫자가 튀어 오름</div>
+    <div class="call" data-n="2" style="left:66%;top:62%">타이머 10초 이하: 빨갛게 두근두근 + 째깍 소리</div>
+    <div class="call" data-n="3" style="left:2%;top:58%">스켈레톤에 은은한 네온 빛</div>
+    <div class="call" data-n="4" style="left:30%;top:60%">🌟 별똥별: 하늘에서 꼬리를 그리며 떨어짐. 3번 쳐야 깨짐 (●●○ 남은 횟수, 칠 때마다 금이 감)</div>
+  </div>
+</section>
+
+<!-- ================= 5. 결과 ================= -->
+<section class="scene">
+  <h2>⑤ 대결 결과</h2>
+  <p class="note">승자 카드가 크게 올라오고 <b>색종이가 쏟아져요</b>. 팀에 더해지는 점수가 0부터 착착 올라가는 카운트업 애니메이션.</p>
+  <div class="frame">
+    <div class="rays" style="animation-duration:14s"></div>
+    <div class="confetti" id="confetti"></div>
+    <div style="position:absolute;left:0;right:0;top:6%;text-align:center">
+      <div class="logo"><div class="l1">🏆 승리!</div><div class="l2" style="font-size:66px">지우 WIN!</div></div>
+    </div>
+    <div style="position:absolute;left:18%;right:18%;top:40%;display:grid;grid-template-columns:1.15fr 1fr;gap:20px;align-items:end">
+      <div class="glass" style="padding:18px;border-color:#ffd84d;box-shadow:0 0 30px rgba(255,216,77,.5);background:linear-gradient(180deg,rgba(255,207,58,.35),rgba(255,138,0,.15))">
+        <div style="display:flex;align-items:center;gap:12px"><div class="shield" style="background:linear-gradient(#ffd84d,#ff8a00)">🐯</div><div><div style="font-family:'Black Han Sans';font-size:30px">지우</div><div style="color:#ffe9a8">호랑이팀</div></div><div style="margin-left:auto;font-size:40px">👑</div></div>
+        <div style="display:flex;justify-content:space-between;margin-top:12px;font-size:18px"><span>게임 점수</span><b style="font-family:'Black Han Sans';font-weight:400;font-size:26px">52</b></div>
+        <div style="display:flex;justify-content:space-between;font-size:18px"><span>승리 보너스</span><b style="font-family:'Black Han Sans';font-weight:400;font-size:26px;color:#7dff6b">+20</b></div>
+        <div style="margin-top:8px;text-align:center;font-family:'Black Han Sans';font-size:34px;color:#ffd84d;text-shadow:0 0 14px rgba(255,216,77,.7)">팀 +72점!</div>
+      </div>
+      <div class="glass" style="padding:16px;opacity:.85">
+        <div style="display:flex;align-items:center;gap:12px"><div class="shield" style="background:linear-gradient(#5ad7ff,#2a6bff)">🦅</div><div><div style="font-family:'Black Han Sans';font-size:26px">서연</div><div style="color:#c8f6ff">독수리팀</div></div></div>
+        <div style="display:flex;justify-content:space-between;margin-top:12px;font-size:18px"><span>게임 점수</span><b style="font-family:'Black Han Sans';font-weight:400;font-size:24px">44</b></div>
+        <div style="margin-top:8px;text-align:center;font-family:'Black Han Sans';font-size:28px;color:#3ee6ff">팀 +44점</div>
+      </div>
+    </div>
+    <div style="position:absolute;left:0;right:0;bottom:6%;text-align:center"><span class="btn btn-green">다음 대결 ▶ <span class="key">Space</span></span></div>
+    <div class="call" data-n="1" style="left:78%;top:36%">진 선수 카드도 "수고했어요!" 칭찬 문구</div>
+  </div>
+</section>
+
+
+<!-- ================= 5-2. 팀 점수 반영 ================= -->
+<section class="scene">
+  <h2>⑤-2 팀 점수 반영 · 순위 변동</h2>
+  <p class="note">결과 화면 다음에 점수판이 나오고, 이번 판 점수가 <b>숫자가 촤라락 올라가듯</b> 팀 점수에 더해져요. 순위가 바뀌면 <b>팀 블록이 위아래로 미끄러지며 자리를 바꾸고</b> "순위 UP!" 화살표가 떠요. (이 시안은 실제로 움직여요)</p>
+  <div class="frame" id="rankFrame">
+    <div class="rays" style="animation-duration:30s"></div><div class="dots"></div>
+    <div style="position:absolute;left:0;right:0;top:6%;text-align:center"><div class="logo"><div class="l2" style="font-size:46px">🏆 팀 점수판</div></div></div>
+    <div id="rankList" style="position:absolute;left:22%;right:22%;top:26%;height:56%"></div>
+    <div id="gainPop" style="position:absolute;left:79%;top:30%;font-family:'Black Han Sans';font-size:40px;color:#7dff6b;-webkit-text-stroke:1.5px #145a1f;text-shadow:0 3px 0 #145a1f;opacity:0;transition:all .5s">+72점</div>
+    <div class="call" data-n="1" style="left:2%;top:30%">이번 판 득점 팀이 반짝이며 숫자가 실시간으로 올라감</div>
+    <div class="call" data-n="2" style="left:2%;top:62%">평균이 역전되면 블록이 스르륵 자리 교체 + "▲ 순위 UP!"</div>
+  </div>
+</section>
+
+<!-- ================= 6. 대회 끝 시상 ================= -->
+<section class="scene">
+  <h2>⑥ 대회 끝 · 시상식</h2>
+  <p class="note">수업 마무리용 화면. 우승 팀 깃발이 내려오고, <b>점수왕 1~3위 시상대</b>. 팡파레와 함께 불꽃놀이.</p>
+  <div class="frame" style="background:radial-gradient(ellipse at 50% 0%, #ffb347 0%, #8a3cff 35%, #1a0f45 80%)">
+    <div class="rays" style="animation-duration:10s"></div>
+    <span class="spark" style="left:10%;top:10%;font-size:40px">🎆</span><span class="spark" style="left:84%;top:8%;font-size:46px;animation-delay:.6s">🎇</span>
+    <div style="position:absolute;left:0;right:0;top:4%;text-align:center">
+      <div class="logo"><div class="l1">우승 팀</div><div class="l2" style="font-size:72px">🐯 호랑이팀</div></div>
+      <div class="chip" style="font-size:18px;margin-top:6px">팀원 평균 78점 · 합계 1,170점</div>
+    </div>
+    <div style="position:absolute;left:50%;bottom:4%;transform:translateX(-50%);display:flex;align-items:flex-end;gap:10px">
+      <div style="text-align:center"><div class="shield" style="width:56px;height:62px;margin:0 auto 4px;font-size:32px;background:linear-gradient(#e0fbff,#3ee6ff)">🦅</div><div style="font-size:20px">민수</div><div style="width:150px;height:90px;border-radius:14px 14px 0 0;background:linear-gradient(#e8e8f0,#9a9ab8);display:flex;align-items:center;justify-content:center;font-family:'Black Han Sans';font-size:44px;color:#3a3a5a;border:3px solid #fff">2</div></div>
+      <div style="text-align:center"><div style="font-size:48px">👑</div><div class="shield" style="width:70px;height:78px;margin:0 auto 4px;font-size:42px;background:linear-gradient(#fff3b0,#ffb020)">🐯</div><div style="font-family:'Black Han Sans';font-size:26px;color:#ffd84d">지우 · 점수왕</div><div style="width:170px;height:130px;border-radius:14px 14px 0 0;background:linear-gradient(#fff3a0,#ffb020);display:flex;align-items:center;justify-content:center;font-family:'Black Han Sans';font-size:58px;color:#7a4a00;border:3px solid #fff;box-shadow:0 0 30px rgba(255,216,77,.7)">1</div></div>
+      <div style="text-align:center"><div class="shield" style="width:56px;height:62px;margin:0 auto 4px;font-size:32px;background:linear-gradient(#d8ffd0,#22c25a)">🐬</div><div style="font-size:20px">서연</div><div style="width:150px;height:66px;border-radius:14px 14px 0 0;background:linear-gradient(#ffc59a,#c46a2b);display:flex;align-items:center;justify-content:center;font-family:'Black Han Sans';font-size:40px;color:#5a2a00;border:3px solid #fff">3</div></div>
+    </div>
+    <div class="call" data-n="1" style="left:2%;top:80%">사진 찍기 좋게 큼직한 화면 (발표용)</div>
+    <div class="call" data-n="2" style="left:70%;top:62%">시상대 위에는 사람 대신 각자 소속 팀 방패 아이콘</div>
+  </div>
+</section>
+
+<section class="scene">
+  <h2>공통 효과 목록</h2>
+  <p class="note" style="font-size:16px">
+    · 화면 전환: 별 모양 와이프 / 카운트다운 3·2·1은 숫자가 크게 튀어나오며 "삐-삐-뻥!"<br>
+    · 득점: 별 파티클 + 숫자 튀어 오름 + 짧은 "띠링" / 생명 잃음: 화면 흔들림 + 빨간 번쩍 + 하트가 깨지는 애니메이션<br>
+    · 콤보·피버: 기울어진 큰 글자, 단계별 색(노랑 → 주황 → 빨강), 피버 땐 배경 음악 템포 업<br>
+    · 버튼: 마우스를 올리면 살짝 커지고, 누르면 쑥 들어가며 "뿅"<br>
+    · 에셋은 모두 코드(CSS/캔버스)와 이모지로 그려서 인터넷 없이도 그대로 보이게
+  </p>
+</section>
+
+<script>
+  const c = document.getElementById('confetti');
+  const cols = ['#ffd84d', '#ff4fa3', '#3ee6ff', '#7dff6b', '#ff8a00', '#fff'];
+  for (let i = 0; i < 70; i++) {
+    const s = document.createElement('i');
+    s.style.left = Math.random() * 100 + '%';
+    s.style.top = Math.random() * 100 + '%';
+    s.style.background = cols[i % cols.length];
+    s.style.transform = `rotate(${Math.random() * 360}deg)`;
+    s.style.opacity = .85;
+    c.appendChild(s);
+  }
+</script>
+<script>
+  // ⑤-2: 팀 점수 카운트업 + 순위 교체 데모 (반복 재생)
+  const teams = [
+    { icon: '🦅', name: '독수리팀', avg: 66, total: 990, grad: 'linear-gradient(90deg,#5ad7ff,#2a7bff)' },
+    { icon: '🐯', name: '호랑이팀', avg: 62, total: 930, grad: 'linear-gradient(90deg,#ffd84d,#ff9a1f)' },
+    { icon: '🐬', name: '돌고래팀', avg: 51, total: 765, grad: 'linear-gradient(90deg,#8bff7a,#22c25a)' },
+  ];
+  const list = document.getElementById('rankList'), pop = document.getElementById('gainPop');
+  const ROW = 33; // 행 높이 (%)
+  const els = teams.map((t) => {
+    const d = document.createElement('div');
+    d.className = 'rank';
+    d.style.cssText = 'position:absolute;left:0;right:0;height:29%;transition:top .9s cubic-bezier(.6,-0.3,.3,1.4), box-shadow .3s;';
+    d.innerHTML = `<span class="no"></span><div class="shield" style="width:40px;height:46px;font-size:22px;background:rgba(255,255,255,.85)">${t.icon}</div>
+      <span class="nm">${t.name}<div class="bar"><i style="background:${t.grad}"></i></div></span>
+      <span class="sc" style="min-width:130px;text-align:right;line-height:1">평균 <b style="font-weight:400">${t.avg}</b><div class="tot" style="font-family:Jua;font-size:14px;color:#d9d3ff;margin-top:4px"></div></span>`;
+    list.appendChild(d); return d;
+  });
+  function layout(order) {
+    order.forEach((ti, r) => {
+      const d = els[ti];
+      d.style.top = r * ROW + '%';
+      d.querySelector('.no').textContent = r === 0 ? '👑' : r + 1;
+      d.style.borderColor = r === 0 ? '#ffd84d' : 'rgba(255,255,255,.12)';
+      d.style.background = r === 0 ? 'rgba(255,216,77,.15)' : 'rgba(0,0,0,.25)';
+      d.querySelector('.bar i').style.width = teams[ti].avg + '%';
+      d.querySelector('.sc b').textContent = teams[ti].avg;
+      d.querySelector('.tot').textContent = '합계 ' + teams[ti].total.toLocaleString() + '점';
+    });
+  }
+  function run() {
+    teams[1].avg = 62; teams[1].total = 930;
+    layout([0, 1, 2]);
+    pop.style.opacity = 0;
+    const tiger = els[1];
+    setTimeout(() => { pop.style.opacity = 1; pop.style.top = '38%'; tiger.style.boxShadow = '0 0 24px 4px rgba(255,216,77,.8)'; }, 900);
+    let v = 62;
+    setTimeout(() => {
+      const iv = setInterval(() => { // 숫자가 촤라락
+        v += 1; teams[1].avg = v; teams[1].total += 9; layout(v > 66 ? [1, 0, 2] : [0, 1, 2]);
+        if (v >= 70) { clearInterval(iv); tiger.style.boxShadow = 'none';
+          const up = document.createElement('div');
+          up.textContent = '▲ 순위 UP!'; up.style.cssText = "position:absolute;right:-118px;top:20%;font-family:'Black Han Sans';font-size:22px;color:#7dff6b;animation:pulse .6s infinite";
+          tiger.appendChild(up); setTimeout(() => up.remove(), 2200); }
+      }, 90);
+    }, 1500);
+    setTimeout(() => { pop.style.top = '30%'; }, 4600);
+  }
+  run(); setInterval(run, 6000);
+</script>
+</body>
+</html>

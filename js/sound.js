@@ -33,4 +33,12 @@ export const sfx = {
   step: () => tone(320, 0.05, 'square', 0.06),
   pass: () => { tone(784, 0.1, 'triangle', 0.16); tone(1046, 0.16, 'triangle', 0.16, 0.08); },
   win: () => [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.25, 'triangle', 0.2, i * 0.14)),
+  click: () => { tone(600, 0.05, 'sine', 0.18); tone(900, 0.07, 'sine', 0.12, 0.04); },     // 버튼 '뿅'
+  whoosh: () => { tone(300, 0.15, 'sawtooth', 0.06); tone(600, 0.12, 'sawtooth', 0.05, 0.05); },
+  slam: () => { tone(70, 0.35, 'square', 0.22); tone(140, 0.2, 'sawtooth', 0.12); },          // VS·결과 '쾅'
+  count: () => tone(1200, 0.03, 'square', 0.05),                                              // 점수 촤라락
+  levelup: () => [659, 880, 1175].forEach((f, i) => tone(f, 0.16, 'triangle', 0.18, i * 0.09)),
+  crack: () => { tone(1800, 0.05, 'square', 0.1); tone(1300, 0.06, 'triangle', 0.12, 0.03); },  // 별에 금이 감
+  shatter: () => { [2093, 1568, 2637, 1760].forEach((f, i) => tone(f, 0.12, 'triangle', 0.14, i * 0.05)); },
+  fanfare: () => [523, 659, 784, 1047, 784, 1047].forEach((f, i) => tone(f, i === 5 ? 0.6 : 0.18, 'triangle', 0.2, i * 0.15)),
 };

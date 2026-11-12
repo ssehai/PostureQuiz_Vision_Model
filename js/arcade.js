@@ -61,6 +61,23 @@ function label(ctx, text, x, y, size, bg = 'rgba(0,0,0,.6)', fg = '#fff') {
   ctx.restore();
 }
 
+// 게임식 콤보 글자: 기울어지고 통통 튀는 큰 글자 (콤보가 클수록 크고 빨갛게)
+function comboText(ctx, text, x, y, size, combo, now) {
+  const col = combo >= 20 ? '#ff2e4d' : combo >= 10 ? '#ff7a1a' : '#ffb020';
+  const sc = 1 + 0.06 * Math.sin(now * 14);
+  ctx.save();
+  ctx.translate(x, y); ctx.rotate(-0.1); ctx.scale(sc, sc);
+  ctx.font = `${Math.round(size)}px "Black Han Sans", Jua, sans-serif`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.lineJoin = 'round';
+  ctx.shadowColor = col; ctx.shadowBlur = size * 0.6;
+  ctx.lineWidth = size * 0.22; ctx.strokeStyle = '#4a0010'; ctx.strokeText(text, 0, size * 0.06);
+  ctx.shadowBlur = 0;
+  ctx.lineWidth = size * 0.1; ctx.strokeStyle = col; ctx.strokeText(text, 0, 0);
+  ctx.fillStyle = '#fff'; ctx.fillText(text, 0, 0);
+  ctx.restore();
+}
+
 // 화면 속 몸 정보 (몸통이 안 보이면 null)
 function readBody(lms, W, H) {
   if (!lms) return null;
@@ -110,12 +127,15 @@ class Base {
     for (const f of this.fx) {
       ctx.save();
       const k = f.age / f.life;
-      ctx.globalAlpha = 1 - k;
-      ctx.font = `${Math.round(H * 0.06)}px Jua, sans-serif`;
+      ctx.globalAlpha = k < 0.6 ? 1 : 1 - (k - 0.6) / 0.4;
+      const pop = k < 0.15 ? 1.6 - (k / 0.15) * 0.6 : 1; // 처음엔 크게 튀어나왔다가 제 크기로
+      ctx.font = `${Math.round(H * 0.065 * pop)}px "Black Han Sans", Jua, sans-serif`;
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.lineWidth = 6; ctx.strokeStyle = 'rgba(0,0,0,.6)';
-      const y = f.y - k * H * 0.08;
+      ctx.lineJoin = 'round';
+      const y = f.y - k * H * 0.09;
+      ctx.lineWidth = H * 0.012; ctx.strokeStyle = 'rgba(40,10,60,.85)';
       ctx.strokeText(f.text, f.x, y);
+      ctx.shadowColor = f.color; ctx.shadowBlur = H * 0.02;
       ctx.fillStyle = f.color; ctx.fillText(f.text, f.x, y);
       ctx.restore();
     }
@@ -252,7 +272,7 @@ class FixedBase extends Base {
     const at = (k) => this.toScreen(i, W, H, n[k].x, n[k].y);
     ctx.save();
     ctx.lineCap = 'round';
-    if (glow) { ctx.shadowColor = GOOD; ctx.shadowBlur = S * 0.3; }
+    ctx.shadowColor = glow ? GOOD : SIDE_COLORS[i]; ctx.shadowBlur = S * (glow ? 0.3 : 0.18); // 은은한 네온 빛
     const blink = p.inv > 0 && Math.sin(this.now * 25) > 0 ? 0.4 : 1; // 무적 중엔 깜빡임
     ctx.strokeStyle = glow ? GOOD : SIDE_COLORS[i]; ctx.lineWidth = S * 0.12;
     for (const [a, b] of BONES) {
@@ -279,6 +299,8 @@ const BOMB_LIFE = (B_LIFE_MIN + B_LIFE_MAX) / 2;   // 폭탄은 풍선 수명의
 const B_ARM = 0.3;    // 폭탄이 나타난 직후 이 시간 동안은 닿아도 안전 (피할 틈)
 const B_GROW0 = 0.12, B_GROW1 = 1.12; // 제자리 풍선 크기: 처음(점) → 터지기 직전 (B_R 배)
 const POP_FX = 0.3, BOOM_FX = 0.4;    // 터지는 효과가 보이는 시간 (짧게)
+const STAR_HITS = 3, STAR_POINTS = 50, STAR_COOL = 0.35; // 별똥별: 3번 쳐야 깨짐, 깨면 50점, 한 번 친 뒤 잠깐은 다시 안 쳐짐
+const FX_LIFE = { pop: POP_FX, boom: BOOM_FX, crack: 0.22, shatter: 0.55 };
 const B_R = 0.22;     // 풍선 반지름 (몸통 길이 단위)
 const B_GAP = 1.05;   // 폭탄과 풍선 중심 사이 최소 거리 (풍선을 치다가 폭탄을 같이 건드리지 않게)
 const COMBO_GAP = 1.5;  // 이 시간(초) 안에 다음 풍선을 터뜨리면 콤보 이어짐
@@ -288,12 +310,12 @@ class Balloon extends FixedBase {
   constructor(o) {
     super(o);
     this.free = true;
-    this.sides = [0, 1].map(() => ({ r: rng(this.seed), items: [], bursts: [], nextAt: 0.6, pops: 0, bombs: 0, combo: 0, best: 0, lastPop: -9 }));
+    this.sides = [0, 1].map(() => ({ r: rng(this.seed), items: [], bursts: [], nextAt: 0.6, pops: 0, stars: 0, bombs: 0, combo: 0, best: 0, lastPop: -9 }));
     this.fever = false;
   }
   interval(t) { return Math.max(0.45, 0.95 - t * 0.011) * (this.fever ? 0.5 : 1); } // 점점 자주, 피버 땐 두 배로
   scaleOf(it) {
-    if (it.type === 'bomb') return 1;
+    if (it.type === 'bomb' || it.type === 'star') return 1;
     if (it.motion !== 'static') return Math.min(1, it.age / 0.25) * (it.small ? 0.72 : 1);
     const k = clamp(it.age / it.life, 0, 1);
     return B_GROW0 + (B_GROW1 - B_GROW0) * Math.pow(k, 0.6);
@@ -305,14 +327,21 @@ class Balloon extends FixedBase {
     const f = this.fb[i];
     if (!f.n) return;
     const B = this.bounds(W, H), X = B.x - 0.4;
-    const type = this.fever ? (u[0] < 0.1 ? 'bomb' : u[0] < 0.35 ? 'gold' : 'balloon') : (u[0] < 0.2 ? 'bomb' : u[0] < 0.27 ? 'gold' : 'balloon');
-    const motion = type === 'bomb' ? 'static' : u[1] < 0.4 ? 'static' : u[1] < 0.7 ? 'rise' : 'fly';
+    // 별똥별은 가끔 (피버 땐 자주)
+    const type = this.fever ? (u[0] < 0.1 ? 'bomb' : u[0] < 0.28 ? 'star' : 'balloon') : (u[0] < 0.2 ? 'bomb' : u[0] < 0.26 ? 'star' : 'balloon');
+    const motion = type === 'bomb' ? 'static' : type === 'star' ? 'fall' : u[1] < 0.4 ? 'static' : u[1] < 0.7 ? 'rise' : 'fly';
     const small = motion !== 'static' && u[7] < 0.3;
     // 높이: 위로는 이 선수가 팔을 뻗어 닿는 곳까지, 아래로는 발 높이까지
     const yTop = -(1 + f.reach.arm * 0.95 + 0.1), yBot = 1.45;
     const life0 = B_LIFE_MIN + u[6] * (B_LIFE_MAX - B_LIFE_MIN);
     const it = { type, motion, small, age: 0, bob: u[4] * 6, vx: 0, vy: 0 };
-    if (motion === 'rise') { // 아래에서 둥실 (좌우로 살랑)
+    if (motion === 'fall') { // 별똥별: 하늘에서 비스듬히 떨어진다 (천천히 → 3번 칠 시간)
+      const dir = u[5] < 0.5 ? 1 : -1;
+      it.x = -dir * X * 0.35 + (u[2] - 0.5) * X; it.y = B.top - 0.4;
+      it.vx = dir * (0.45 + u[4] * 0.45); it.vy = 1.0 + u[3] * 0.45;
+      it.life = (yBot + 0.4 - it.y) / it.vy;
+      it.hits = 0; it.cool = 0; it.hitT = -9;
+    } else if (motion === 'rise') { // 아래에서 둥실 (좌우로 살랑)
       it.x0 = it.x = -X + 2 * X * u[2]; it.y = B.bot + 0.3;
       it.vy = -(1.3 + u[4] * 1.0) * (small ? 1.5 : 1);
       it.life = (it.y - (B.top - 0.4)) / -it.vy;
@@ -348,7 +377,7 @@ class Balloon extends FixedBase {
     this.sides.forEach((sd, i) => {
       const p = this.players[i];
       for (const bs of sd.bursts) bs.age += dt;
-      sd.bursts = sd.bursts.filter((bs) => bs.age < (bs.kind === 'boom' ? BOOM_FX : POP_FX));
+      sd.bursts = sd.bursts.filter((bs) => bs.age < FX_LIFE[bs.kind]);
       if (p.lives <= 0) { sd.items = []; return; }
       while (t >= sd.nextAt) { this.spawn(sd, i, W, H); sd.nextAt += this.interval(sd.nextAt); }
       if (sd.combo && t - sd.lastPop > COMBO_GAP) sd.combo = 0; // 멈칫하면 콤보 끊김
@@ -357,7 +386,8 @@ class Balloon extends FixedBase {
         it.age += dt;
         it.x += it.vx * dt; it.y += it.vy * dt;
         if (it.motion === 'rise') it.x = it.x0 + Math.sin(it.age * 2.2 + it.bob) * 0.3;
-        if (it.age >= it.life) { // 수명 끝: 제자리 풍선은 펑, 폭탄은 쾅, 움직이는 풍선은 화면 밖으로 사라짐
+        if (it.cool > 0) it.cool -= dt;
+        if (it.age >= it.life) { // 수명 끝: 제자리 풍선은 펑, 폭탄은 쾅, 움직이는 풍선·별은 화면 밖으로 사라짐
           it.dead = true;
           if (it.motion === 'static') this.burst(sd, it, it.type === 'bomb' ? 'boom' : 'pop');
           continue;
@@ -370,11 +400,33 @@ class Balloon extends FixedBase {
             it.dead = true; sd.bombs++; sd.combo = 0; sfx.boom();
             this.burst(sd, it, 'boom');
           }
+        } else if (it.type === 'star') {
+          // 별똥별: 칠 때마다 금이 가고, 3번째에 와장창 깨지며 큰 점수
+          // 손·발이 별에 '새로 닿는 순간'만 한 번으로 친다 (대고 있으면 안 쳐짐 → 떼었다가 다시 쳐야 함)
+          const touching = pts.some((h) => !h.head && Math.hypot(h.x - it.x, h.y - it.y) < B_R * 1.2 + 0.14);
+          const newHit = touching && !it.touching && it.cool <= 0;
+          it.touching = touching;
+          if (newHit) {
+            it.hits++; it.cool = STAR_COOL; it.hitT = it.age;
+            const sc = this.world(i, W, H, it.x, it.y);
+            if (it.hits < STAR_HITS) {
+              this.burst(sd, it, 'crack'); sfx.crack();
+              this.pop(sc.x, sc.y - H * 0.05, `${it.hits}/${STAR_HITS}`, '#fff3a0', 0.5);
+            } else {
+              it.dead = true;
+              sd.combo = t - sd.lastPop <= COMBO_GAP ? sd.combo + 1 : 1;
+              sd.lastPop = t; sd.best = Math.max(sd.best, sd.combo);
+              const got = Math.round(STAR_POINTS * this.mult(sd));
+              p.score += got; sd.stars++;
+              this.burst(sd, it, 'shatter'); sfx.shatter();
+              this.pop(sc.x, sc.y - H * 0.04, `🌟 +${got}`, '#ffd84d', 0.9);
+            }
+          }
         } else if (pts.some((h) => !h.head && near(h))) {
           it.dead = true;
           sd.combo = t - sd.lastPop <= COMBO_GAP ? sd.combo + 1 : 1;
           sd.lastPop = t; sd.best = Math.max(sd.best, sd.combo);
-          const base = it.type === 'gold' ? 30 : it.small ? 20 : 10;
+          const base = it.small ? 20 : 10;
           const got = Math.round(base * this.mult(sd));
           p.score += got; sd.pops++;
           this.burst(sd, it, 'pop');
@@ -391,12 +443,44 @@ class Balloon extends FixedBase {
     const S = H * FIX_S, r = B_R * S;
     this.sides.forEach((sd, i) => {
       this.drawBackdrop(ctx, W, H, i);
-      if (this.fever) { // 피버 타임: 배경이 번쩍번쩍
-        ctx.fillStyle = `rgba(255,170,40,${0.1 + 0.08 * Math.sin((this.t || 0) * 12)})`;
-        ctx.fillRect(i * W / 2, 0, W / 2, H);
+      if (this.fever) { // 피버 타임: 화면 가장자리가 주황빛으로 일렁
+        const x0 = i * W / 2, a = 0.35 + 0.15 * Math.sin((this.t || 0) * 10);
+        const g = ctx.createRadialGradient(x0 + W / 4, H / 2, H * 0.25, x0 + W / 4, H / 2, H * 0.75);
+        g.addColorStop(0, 'rgba(255,120,30,0)'); g.addColorStop(1, `rgba(255,120,30,${a})`);
+        ctx.fillStyle = g; ctx.fillRect(x0, 0, W / 2, H);
       }
       for (const it of sd.items) {
         const c = this.world(i, W, H, it.x, it.y + (it.motion === 'static' ? Math.sin(it.age * 3 + it.bob) * B_R * 0.08 : 0));
+        if (it.type === 'star') { // 별똥별: 빛나는 꼬리 + 금 + 남은 횟수 ●●○
+          const sp = Math.hypot(it.vx, it.vy), tx = -it.vx / sp, ty = -it.vy / sp, L = S * 1.8;
+          const g = ctx.createLinearGradient(c.x, c.y, c.x + tx * L, c.y + ty * L);
+          g.addColorStop(0, 'rgba(255,240,150,.95)'); g.addColorStop(0.4, 'rgba(255,190,60,.45)'); g.addColorStop(1, 'rgba(255,190,60,0)');
+          ctx.save();
+          ctx.strokeStyle = g; ctx.lineCap = 'round'; ctx.lineWidth = r * 0.9;
+          ctx.beginPath(); ctx.moveTo(c.x, c.y); ctx.lineTo(c.x + tx * L, c.y + ty * L); ctx.stroke();
+          ctx.restore();
+          const shakeX = it.age - it.hitT < 0.2 ? Math.sin(it.age * 90) * r * 0.15 : 0;
+          ctx.save();
+          ctx.shadowColor = '#ffe066'; ctx.shadowBlur = r * 1.2;
+          emoji(ctx, '🌟', c.x + shakeX, c.y, r * 2.8);
+          ctx.restore();
+          if (it.hits) { // 금
+            ctx.save(); ctx.strokeStyle = 'rgba(255,255,255,.95)'; ctx.lineWidth = Math.max(2, r * 0.09); ctx.lineJoin = 'round';
+            const cracks = [[[-0.1, -0.5], [0.05, -0.15], [-0.12, 0.1], [0.08, 0.45]], [[0.45, -0.2], [0.15, 0], [0.3, 0.25], [0.05, 0.4]]];
+            for (let k = 0; k < Math.min(it.hits, cracks.length); k++) {
+              ctx.beginPath();
+              cracks[k].forEach(([px, py], j) => { const X2 = c.x + shakeX + px * r * 1.3, Y2 = c.y + py * r * 1.3; j ? ctx.lineTo(X2, Y2) : ctx.moveTo(X2, Y2); });
+              ctx.stroke();
+            }
+            ctx.restore();
+          }
+          for (let k = 0; k < STAR_HITS; k++) { // 남은 횟수
+            const dx = c.x + (k - 1) * r * 0.7, dy = c.y + r * 1.7;
+            ctx.beginPath(); ctx.arc(dx, dy, r * 0.22, 0, Math.PI * 2);
+            if (k < it.hits) { ctx.fillStyle = '#ffd84d'; ctx.fill(); } else { ctx.lineWidth = 3; ctx.strokeStyle = '#ffd84d'; ctx.stroke(); }
+          }
+          continue;
+        }
         if (it.type === 'bomb') { // 폭탄: 바로 제 크기로 '뿅'. 터지기 직전에 살짝 떨린다
           const shake = it.life - it.age < 0.35 ? Math.sin(it.age * 60) * r * 0.08 : 0;
           emoji(ctx, '💣', c.x + shake, c.y, r * 2.2);
@@ -409,7 +493,7 @@ class Balloon extends FixedBase {
           emoji(ctx, '🎈', c.x - Math.sign(it.vx || 0) * size * 0.6, c.y - Math.sign(it.vy || 0) * size * 0.6, size);
           ctx.restore();
         }
-        emoji(ctx, it.type === 'gold' ? '🌟' : '🎈', c.x, c.y, size);
+        emoji(ctx, '🎈', c.x, c.y, size);
       }
       // 터지는 효과: 풍선 → 별이 반짝 튀었다가 빠르게 사라짐 / 폭탄 → 쾅
       for (const bs of sd.bursts) {
@@ -424,6 +508,27 @@ class Balloon extends FixedBase {
             ctx.beginPath(); ctx.arc(c.x + Math.cos(ang) * d, c.y + Math.sin(ang) * d, r * 0.12 * (1 - k), 0, Math.PI * 2); ctx.fill();
           }
           ctx.restore();
+        } else if (bs.kind === 'crack' || bs.kind === 'shatter') { // 별에 금이 갈 때 / 깨질 때
+          const big = bs.kind === 'shatter', k = bs.age / FX_LIFE[bs.kind];
+          if (big) {
+            ctx.save(); ctx.globalAlpha = 1 - k;
+            const g = ctx.createRadialGradient(c.x, c.y, 0, c.x, c.y, r * 4 * (0.5 + k));
+            g.addColorStop(0, 'rgba(255,250,200,.95)'); g.addColorStop(1, 'rgba(255,200,60,0)');
+            ctx.fillStyle = g; ctx.beginPath(); ctx.arc(c.x, c.y, r * 4 * (0.5 + k), 0, Math.PI * 2); ctx.fill();
+            ctx.restore();
+            for (let a = 0; a < 6; a++) { // 별 조각이 사방으로
+              const ang = (a / 6) * Math.PI * 2 + 0.3, d = r * (0.5 + 3.2 * k);
+              emoji(ctx, '⭐', c.x + Math.cos(ang) * d, c.y + Math.sin(ang) * d + k * k * r * 2, r * 1.1 * (1 - k * 0.6), 1 - k);
+            }
+          }
+          ctx.save();
+          ctx.fillStyle = `rgba(255,255,220,${1 - k})`;
+          const n = big ? 14 : 8;
+          for (let a = 0; a < n; a++) {
+            const ang = (a / n) * Math.PI * 2, d = r * (0.6 + (big ? 3 : 1.6) * k);
+            ctx.beginPath(); ctx.arc(c.x + Math.cos(ang) * d, c.y + Math.sin(ang) * d, r * (big ? 0.16 : 0.1) * (1 - k), 0, Math.PI * 2); ctx.fill();
+          }
+          ctx.restore();
         } else {
           const k = bs.age / BOOM_FX;
           emoji(ctx, '💥', c.x, c.y, r * 2.4 * (0.8 + 0.9 * k), 1 - k * k);
@@ -433,16 +538,15 @@ class Balloon extends FixedBase {
       // 위쪽: 콤보 / 피버 표시
       const top = this.world(i, W, H, 0, 0).x;
       if (sd.combo >= 2) {
-        const c = sd.combo, cs = H * 0.032 * (1 + Math.min(c, 15) / 15);
-        label(ctx, `🔥 ${c} 콤보 ×${this.mult(sd).toFixed(1)}`, top, H * 0.06, cs, 'rgba(0,0,0,.65)', c >= 10 ? '#ff4d5e' : c >= 5 ? '#ff7a3d' : '#ffd84d');
+        const c = sd.combo;
+        comboText(ctx, `${c} COMBO! ×${this.mult(sd).toFixed(1)}`, top, H * (this.fever ? 0.2 : 0.09), H * 0.05 * (1 + Math.min(c, 15) / 25), c, this.t || 0);
       }
-      if (this.fever) label(ctx, '🔥 피버 타임! 🔥', top, H * 0.14, H * 0.035, 'rgba(255,120,30,.9)');
     });
     this.drawFx(ctx, W, H);
   }
-  detail(i) { const sd = this.sides[i]; return `🎈 ${sd.pops}개 터뜨림 · 최고 ${sd.best} 콤보 · 💣 ${sd.bombs}번 닿음`; }
+  detail(i) { const sd = this.sides[i]; return `🎈 ${sd.pops}개 · 🌟 ${sd.stars}개 · 최고 ${sd.best} 콤보 · 💣 ${sd.bombs}번`; }
   phaseText() {
-    return this.fever ? '🔥 피버 타임! 풍선이 쏟아져요!' : '연속으로 터뜨리면 콤보! 움직이는 풍선을 쫓아가요 · 💣 피하기';
+    return this.fever ? '🔥 피버 타임! 풍선이 쏟아져요!' : '🌟 별똥별은 3번 쳐서 깨요! · 💣 피하기';
   }
   simPose(t) { // 시뮬레이션: 팔을 이리저리 휘두른다
     const seq = [
@@ -1139,7 +1243,7 @@ class FreeDance extends Base {
       if (M.combo >= 2 && !this.frozen) {
         const c = M.combo, cs = H * 0.032 * (1 + Math.min(c, 30) / 30);
         const col = c >= 20 ? '#ff4d5e' : c >= 10 ? '#ff7a3d' : '#ffd84d';
-        label(ctx, `🔥 ${c} 콤보 ×${this.mult(i).toFixed(2).replace(/0$/, '')}`, X, by + h + cs * 1.1, cs, 'rgba(0,0,0,.65)', col);
+        comboText(ctx, `${c} COMBO! ×${this.mult(i).toFixed(2).replace(/0$/, '')}`, X, by + h + cs * 1.6, cs * 1.4, c, this.now || 0);
       }
       // 얼음 중 움직이면 몸 주변에 빨간 경고 원
       if (p.b && this.frozen && this.fT >= FREEZE_GRACE && M.danger > 0) {

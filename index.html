@@ -5,131 +5,154 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>내 몸이 컨트롤러! AI 바디 배틀</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=Jua&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=Jua&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="css/style.css" />
 </head>
 <body>
   <video id="video" playsinline muted></video>
   <canvas id="stage"></canvas>
 
-  <!-- 게임 중 HUD -->
+  <!-- 무대 배경 (게임 중이 아닐 때) -->
+  <div id="backdrop"><div class="rays"></div><div class="dots"></div></div>
+
+  <!-- 게임 중 HUD: 아래 띠 = 선수 카드 + 가운데 타이머 -->
   <div id="hud" class="hidden">
-    <div class="topbar">
-      <div class="round-timer"><span id="roundTime">60</span><small>초</small></div>
-      <div class="pose-card">
-        <canvas id="ghost" width="360" height="400"></canvas>
-        <div class="pose-info">
-          <div class="pose-name"><span id="poseEmoji"></span> <span id="poseName"></span></div>
-          <div class="pose-hint" id="poseHint"></div>
-          <div class="bar"><div id="poseBar"></div></div>
-          <div class="pose-phase" id="posePhase"></div>
-        </div>
+    <div id="fever" class="fever-banner hidden">🔥 FEVER TIME 🔥</div>
+    <div class="bottom-strip">
+      <div class="pcard" id="panel0"></div>
+      <div class="timer" id="timerBox">
+        <small id="gameLabel"></small>
+        <b id="roundTime">45</b>
+        <div class="tbar"><div id="poseBar"></div></div>
+        <small id="posePhase" class="phase"></small>
       </div>
-      <div class="round-timer ghosty"><span>🎮</span></div>
+      <div class="pcard" id="panel1"></div>
     </div>
-    <div class="player-panel" id="panel0"></div>
-    <div class="player-panel right" id="panel1"></div>
   </div>
 
   <!-- 큰 글씨 알림 (카운트다운 등) -->
   <div id="bigText" class="hidden"></div>
 
-  <!-- 설정 화면 -->
-  <section id="setup" class="screen">
-    <div class="card wide">
-      <h1>🎮 내 몸이 컨트롤러! AI 바디 배틀</h1>
-      <p class="sub">카메라가 내 몸을 읽어요. 막춤·풍선·벽·달리기·골키퍼, 5가지 게임으로 팀 대결!</p>
-      <div class="row">
-        <label>게임 모드
-          <select id="mode">
-            <option value="random">🎰 돌림판 (매 판 무작위)</option>
-            <option value="dance">💃 막춤 얼음땡</option>
-            <option value="balloon">🎈 풍선 터뜨리기</option>
-            <option value="wall">🧱 벽 통과하기</option>
-            <option value="race">🏃 제자리 달리기</option>
-            <option value="goalie">🧤 골키퍼</option>
-          </select>
-        </label>
-        <label>팀 수
-          <select id="teamCount"><option>2</option><option>3</option><option>4</option></select>
-        </label>
-        <label>생명
-          <select id="lives"><option>3</option><option>4</option><option>5</option></select>
-        </label>
-        <label>대결 시간
-          <select id="roundSec"><option value="30">30초</option><option value="45">45초</option><option value="60">60초</option><option value="90">90초</option></select>
-        </label>
-        <label>라운드 수
-          <select id="rounds"><option value="1">1라운드 (모두 1번)</option><option value="2">2라운드 (모두 2번)</option><option value="3">3라운드 (모두 3번)</option></select>
-        </label>
-        <label>난이도
-          <select id="difficulty"><option value="easy">쉬움</option><option value="normal">보통</option><option value="hard">어려움</option></select>
-        </label>
-        <label>카메라
-          <select id="camera"><option value="">기본 카메라</option></select>
-          <small id="cameraNote" class="note"></small>
-        </label>
-        <label>인식 모델
-          <select id="model"><option value="lite">빠름 (노트북 권장)</option><option value="full">정확 (좋은 PC)</option></select>
-        </label>
+  <!-- ① 타이틀 · 설정 -->
+  <section id="setup" class="screen solid">
+    <div class="title-logo bob">
+      <div class="logo-l1">내 몸이 컨트롤러!</div>
+      <div class="logo-l2">AI 바디 배틀</div>
+    </div>
+    <div class="deco" style="left:6%;top:44%">🕺</div>
+    <div class="deco" style="right:6%;top:42%;animation-delay:.4s">🎈</div>
+    <div class="glass setup-panel">
+      <div class="chip-row"><span class="row-label">게임</span><div class="chips" data-for="mode"></div></div>
+      <div class="chip-row">
+        <span class="row-label">팀 수</span><div class="chips" data-for="teamCount"></div>
+        <span class="row-label right">난이도</span><div class="chips" data-for="difficulty"></div>
       </div>
-      <div id="teams" class="teams"></div>
-      <p class="tip">팀원 이름은 한 줄에 한 명씩 적어요. 비워 두면 "선수 1~5"로 채워져요.</p>
-      <div class="actions">
-        <button id="startBtn" class="primary">📷 카메라 켜고 시작</button>
-        <button id="simBtn">카메라 없이 체험 (시뮬레이션)</button>
+      <div class="setup-actions">
+        <button id="startBtn" class="btn btn-go big-btn">📷 게임 시작!</button>
+        <button id="teamsBtn" class="btn btn-ghost">✏️ 팀원 이름 입력</button>
+        <button id="optsBtn" class="btn btn-ghost">⚙️ 설정</button>
       </div>
+      <button id="simBtn" class="link-btn">🧪 카메라 없이 체험 (시뮬레이션)</button>
       <p id="setupMsg" class="msg"></p>
     </div>
+    <!-- 칩 버튼이 값을 바꾸는 숨은 선택 상자 -->
+    <div class="hidden">
+      <select id="mode">
+        <option value="random">🎰 돌림판</option><option value="dance">💃 막춤</option><option value="balloon">🎈 풍선</option>
+        <option value="wall">🧱 벽</option><option value="race">🏃 달리기</option><option value="goalie">🧤 골키퍼</option>
+      </select>
+      <select id="teamCount"><option>2</option><option>3</option><option>4</option></select>
+      <select id="difficulty"><option value="easy">쉬움</option><option value="normal">보통</option><option value="hard">어려움</option></select>
+    </div>
   </section>
 
-  <!-- 대기실: 점수판 + 다음 대결 뽑기 -->
+  <!-- 팀원 이름 입력 창 -->
+  <div id="teamModal" class="modal hidden">
+    <div class="glass modal-card wide">
+      <div class="modal-title">✏️ 팀원 이름 입력</div>
+      <p class="modal-tip">한 줄에 한 명씩 적어요. 비워 두면 "선수 1~5"로 채워져요.</p>
+      <div id="teams" class="teams"></div>
+      <div class="modal-actions"><button class="btn btn-green close-modal">✔ 완료</button></div>
+    </div>
+  </div>
+
+  <!-- 설정 창 -->
+  <div id="optModal" class="modal hidden">
+    <div class="glass modal-card">
+      <div class="modal-title">⚙️ 설정</div>
+      <div class="opt-grid">
+        <label>생명<select id="lives"><option>3</option><option>4</option><option>5</option></select></label>
+        <label>대결 시간<select id="roundSec"><option value="30">30초</option><option value="45">45초</option><option value="60">60초</option><option value="90">90초</option></select></label>
+        <label>라운드 수<select id="rounds"><option value="1">1라운드 (모두 1번)</option><option value="2">2라운드 (모두 2번)</option><option value="3">3라운드 (모두 3번)</option></select></label>
+        <label>인식 모델<select id="model"><option value="lite">빠름 (노트북 권장)</option><option value="full">정확 (좋은 PC)</option></select></label>
+        <label class="span2">카메라<select id="camera"><option value="">기본 카메라</option></select><small id="cameraNote" class="note"></small></label>
+      </div>
+      <div class="modal-actions"><button class="btn btn-green close-modal">✔ 완료</button></div>
+    </div>
+  </div>
+
+  <!-- ② 대기실 -->
   <section id="lobby" class="screen hidden">
-    <div class="lobby-left card">
-      <h2>🏆 점수판</h2>
-      <div id="scoreboard"></div>
-      <h3>최근 대결</h3>
-      <ol id="history"></ol>
+    <div class="glass lobby-left">
+      <div class="panel-title">🏆 팀 순위</div>
+      <div id="scoreboard" class="rank-list"></div>
+      <div id="history" class="history"></div>
       <div class="small-actions">
-        <button id="settingsBtn">⚙️ 설정</button>
-        <button id="resetScoreBtn">점수 초기화</button>
+        <button id="settingsBtn" class="btn btn-ghost small">⚙️ 처음 화면</button>
+        <button id="resetScoreBtn" class="btn btn-ghost small">🔄 점수 초기화</button>
       </div>
     </div>
-    <div class="lobby-right card">
-      <h2>다음 대결</h2>
-      <div id="stageInfo" class="stage-info"></div>
-      <div class="versus" id="versus"></div>
+    <div class="lobby-right">
+      <div id="stageInfo" class="chip info-chip"></div>
+      <div id="versus" class="versus"></div>
+      <div class="presence"><span id="pres0" class="chip">왼쪽 선수 ⏳</span><span id="pres1" class="chip">오른쪽 선수 ⏳</span></div>
       <div id="modeInfo" class="mode-info"></div>
-      <div class="presence">
-        <span id="pres0">왼쪽 선수 ⏳</span>
-        <span id="pres1">오른쪽 선수 ⏳</span>
-      </div>
-      <p class="tip">두 선수는 화면 왼쪽/오른쪽에 서서 머리부터 발끝까지 보이게 해 주세요. 한 명만 있어도 시작할 수 있어요 (연습 경기, 기록 안 함).</p>
-      <div class="actions">
-        <button id="drawBtn">🎲 다시 뽑기 <kbd>R</kbd></button>
-        <button id="fightBtn" class="primary">대결 시작! <kbd>Space</kbd></button>
+      <div class="lobby-actions">
+        <button id="drawBtn" class="btn btn-blue">🎲 다시 뽑기 <span class="key">R</span></button>
+        <button id="fightBtn" class="btn btn-go">🎰 돌림판 돌리기! <span class="key">Space</span></button>
       </div>
     </div>
   </section>
 
-  <!-- 게임 돌림판 -->
+  <!-- ③ 돌림판 -->
   <section id="roulette" class="screen hidden">
-    <div class="card roulette-card">
-      <div id="rouletteTitle" class="result-title"></div>
-      <canvas id="wheel" width="520" height="520"></canvas>
-    </div>
+    <div id="rouletteTitle" class="roulette-title"></div>
+    <div class="wheel-wrap"><canvas id="wheel" width="620" height="620"></canvas></div>
   </section>
 
-  <!-- 결과 -->
+  <!-- ⑤ 대결 결과 -->
   <section id="result" class="screen hidden">
-    <div class="card">
-      <div id="resultTitle" class="result-title"></div>
-      <div id="resultBody" class="result-body"></div>
-      <div class="actions">
-        <button id="nextBtn" class="primary">다음 대결 <kbd>Space</kbd></button>
-      </div>
+    <div id="confetti" class="confetti-layer"></div>
+    <div class="result-head">
+      <div id="resultSub" class="logo-l1"></div>
+      <div id="resultTitle" class="logo-l2"></div>
+      <div id="resultReason" class="chip info-chip"></div>
     </div>
+    <div id="resultBody" class="result-cards"></div>
+    <button id="nextBtn" class="btn btn-green">다음 ▶ <span class="key">Space</span></button>
   </section>
+
+  <!-- ⑤-2 팀 점수 반영 · 순위 변동 -->
+  <section id="rankboard" class="screen hidden">
+    <div class="logo-l2 small-logo">🏆 팀 점수판</div>
+    <div id="rankAnim" class="rank-anim"></div>
+    <button id="rankNextBtn" class="btn btn-green">대기실로 ▶ <span class="key">Space</span></button>
+  </section>
+
+  <!-- ⑥ 시상식 -->
+  <section id="awards" class="screen hidden">
+    <div class="fireworks"><span>🎆</span><span>🎇</span><span>🎆</span><span>🎇</span></div>
+    <div class="awards-head">
+      <div class="logo-l1">우승 팀</div>
+      <div id="awardTeam" class="logo-l2"></div>
+      <div id="awardInfo" class="chip info-chip"></div>
+    </div>
+    <div id="podium" class="podium"></div>
+    <button id="awardsBackBtn" class="btn btn-ghost small">◀ 대기실</button>
+  </section>
+
+  <!-- 화면 전체 번쩍임 -->
+  <div id="flash" class="flash"></div>
 
   <script type="module" src="js/app.js"></script>
   <script>
@@ -138,7 +161,7 @@
       if (window.__game) return;
       var m = document.getElementById('setupMsg');
       if (m) {
-        m.style.color = 'var(--bad)';
+        m.style.color = '#ff8a95';
         m.textContent = '게임을 불러오지 못했어요. Cmd+Shift+R (윈도우는 Ctrl+Shift+R)로 강력 새로고침해 주세요. 그래도 안 되면 인터넷 연결과 서버가 켜져 있는지 확인해 주세요.';
       }
     }, 3000);
