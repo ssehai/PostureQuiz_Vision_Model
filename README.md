@@ -15,11 +15,12 @@ cd PostureQuiz_Vision_Model
 python3 serve.py
 ```
 
-그다음 Chrome에서 <http://localhost:8000> 을 열어요.
+그다음 Chrome(또는 Edge)에서 <http://localhost:8000> 을 열어요. Windows에서는 `python serve.py` 또는 `py serve.py`로 실행해요 (파이썬 설치 때 *Add Python to PATH* 체크). 추가로 설치할 패키지는 없어요 (파이썬 3.7 이상).
 
-- 처음 실행할 때 AI 모델을 인터넷에서 내려받아요 (약 10초)
-- 카메라 없이 흐름만 보려면 설정 화면의 *카메라 없이 체험 (시뮬레이션)* 버튼을 눌러요. 나중에 ⚙️ 설정 → *카메라 켜고 시작*을 누르면 웹캠으로 바뀌어요
-- USB 웹캠을 쓸 때는 설정의 **카메라** 목록에서 골라요 (처음엔 "카메라 1"처럼 보이다가, 권한을 허용하면 실제 이름이 보여요)
+- **인터넷 없이 돌아가요.** AI 엔진·모델(`vendor/mediapipe`, `vendor/models`)과 글꼴(`vendor/fonts`)이 프로젝트 안에 들어 있어요. 혹시 `vendor` 폴더가 빠져 있으면 그때만 인터넷에서 받아요 (대기실 아래에 "AI: 이 컴퓨터 / 인터넷"으로 어디서 불러왔는지 보여요)
+- AI 모델을 준비하는 데 몇 초 걸려요
+- 카메라 없이 흐름만 보려면 처음 화면의 *🧪 카메라 없이 체험 (시뮬레이션)* 을 눌러요
+- USB 웹캠을 쓸 때는 *⚙️ 설정*의 **카메라** 목록에서 골라요 (처음엔 "카메라 1"처럼 보이다가, 권한을 허용하면 실제 이름이 보여요)
 
 ### 카메라가 안 켜질 때
 
@@ -157,4 +158,9 @@ js/judge.js       난이도 기준값, 관절이 보이는지 확인
 js/tracker.js     웹캠 + MediaPipe Pose Landmarker
 js/sim.js         카메라 없는 시뮬레이션 모드
 js/sound.js       효과음 (WebAudio)
+serve.py          로컬 서버 (캐시 끔, 파일 형식 지정)
+vendor/mediapipe  MediaPipe Tasks Vision 0.10.14 (Apache 2.0, LICENSE 포함)
+vendor/models     자세 인식 모델 (lite·full)
+vendor/fonts      Jua·Black Han Sans 글꼴 (SIL Open Font License, OFL-*.txt 포함)
+design/           화면 시안
 ```

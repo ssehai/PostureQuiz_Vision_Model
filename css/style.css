@@ -1,4 +1,7 @@
 /* ===== AI 바디 배틀 — "밤의 게임쇼 무대" 테마 ===== */
+/* 글꼴은 프로젝트 안에 들어 있어서 인터넷 없이도 보인다 (SIL Open Font License, vendor/fonts/OFL-*.txt) */
+@font-face { font-family: 'Jua'; src: url('../vendor/fonts/Jua-Regular.ttf') format('truetype'); font-display: swap; }
+@font-face { font-family: 'Black Han Sans'; src: url('../vendor/fonts/BlackHanSans-Regular.ttf') format('truetype'); font-display: swap; }
 :root {
   --panel-h: 150px;
   --ink: #1b1440;

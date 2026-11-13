@@ -294,7 +294,7 @@ function renderLobby(roll = false) {
   const tr = state.tracker;
   $('modeInfo').textContent = !tr ? '' : tr.kind === 'sim'
     ? '🧪 시뮬레이션 모드 (가상 선수) · 웹캠을 쓰려면 ⚙️ 처음 화면 → 게임 시작'
-    : `📷 ${tr.label}`;
+    : `📷 ${tr.label}${tr.source ? ` · AI: ${tr.source}` : ''}`;
   $('modeInfo').className = `mode-info ${tr && tr.kind === 'sim' ? 'sim' : ''}`;
   const n = state.next;
   const v = $('versus');
