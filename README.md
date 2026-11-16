@@ -1,35 +1,94 @@
 # 🎮 내 몸이 컨트롤러! AI 바디 배틀
 
-웹캠으로 두 학생의 관절(스켈레톤)을 실시간으로 인식해 **몸으로 하는 미니게임 5가지**(막춤 얼음땡·풍선·벽 통과·제자리 달리기·골키퍼)로 겨루는 1:1 팀 대항 게임입니다. 초등학생 수업·체험 활동용으로 만들었습니다.
+웹캠으로 두 학생의 관절(스켈레톤)을 실시간으로 인식해 **몸으로 하는 미니게임 5가지**(막춤 얼음땡·풍선 터뜨리기·벽 통과하기·제자리 달리기·골키퍼)로 겨루는 1:1 팀 대항 게임이에요. 초등학생 수업·체험 활동용으로 만들었어요. (5기 OKIS 글로벌멘토링 A팀 AI 수업)
 
-- 설치 없이 **브라우저 + 웹캠**만 있으면 돼요 (Chrome 권장)
-- 영상은 **컴퓨터 안에서만 처리**하고 외부 서버로 보내지 않아요 ([MediaPipe Pose Landmarker](https://ai.google.dev/edge/mediapipe/solutions/vision/pose_landmarker))
-- 2~4팀, 팀원 이름을 넣으면 매 판 무작위로 1:1 상대를 뽑아요
+<p align="center">
+  <img src="docs/screenshots/01-title.jpg" width="49%" alt="처음 화면" />
+  <img src="docs/screenshots/03-lobby.jpg" width="49%" alt="대기실 VS 카드" />
+</p>
 
-## 실행 방법
+- **노트북 + 웹캠 + Chrome**만 있으면 돼요. 설치할 프로그램은 파이썬(대부분 이미 있어요) 하나뿐이에요
+- **인터넷 없이** 돌아가요 (AI 모델과 글꼴이 폴더 안에 들어 있어요)
+- 영상은 **노트북 안에서만** 처리하고 어디에도 보내지 않아요 ([MediaPipe Pose Landmarker](https://ai.google.dev/edge/mediapipe/solutions/vision/pose_landmarker))
 
-카메라는 보안상 `file://`로는 열리지 않아서, 간단한 로컬 서버로 실행해야 해요. `serve.py`는 `python3 -m http.server`와 같지만 브라우저 캐시를 끄기 때문에, 코드를 고친 뒤 새로고침해도 옛 파일과 섞이지 않아요.
+## 🚀 팀원용 빠른 시작
 
-```bash
-cd PostureQuiz_Vision_Model
-python3 serve.py
-```
+### 1. 게임 받기
 
-그다음 Chrome(또는 Edge)에서 <http://localhost:8000> 을 열어요. Windows에서는 `python serve.py` 또는 `py serve.py`로 실행해요 (파이썬 설치 때 *Add Python to PATH* 체크). 추가로 설치할 패키지는 없어요 (파이썬 3.7 이상).
+- 이 페이지 위쪽 초록색 **Code → Download ZIP**을 누르거나, [여기서 바로 받기](https://github.com/ssehai/PostureQuiz_Vision_Model/archive/refs/heads/main.zip)
+- 받은 ZIP의 **압축을 풀어요** (Windows는 꼭 "압축 풀기"를 먼저 하고, ZIP 안에서 바로 실행하지 마세요). 폴더 이름은 `PostureQuiz_Vision_Model-main`이에요
+- git을 쓰는 사람은 `git clone https://github.com/ssehai/PostureQuiz_Vision_Model.git`
 
-- **인터넷 없이 돌아가요.** AI 엔진·모델(`vendor/mediapipe`, `vendor/models`)과 글꼴(`vendor/fonts`)이 프로젝트 안에 들어 있어요. 혹시 `vendor` 폴더가 빠져 있으면 그때만 인터넷에서 받아요 (대기실 아래에 "AI: 이 컴퓨터 / 인터넷"으로 어디서 불러왔는지 보여요)
-- AI 모델을 준비하는 데 몇 초 걸려요
-- 카메라 없이 흐름만 보려면 처음 화면의 *🧪 카메라 없이 체험 (시뮬레이션)* 을 눌러요
-- USB 웹캠을 쓸 때는 *⚙️ 설정*의 **카메라** 목록에서 골라요 (처음엔 "카메라 1"처럼 보이다가, 권한을 허용하면 실제 이름이 보여요)
+### 2. 게임 켜기
 
-### 카메라가 안 켜질 때
+압축을 푼 폴더에서 터미널을 열고 아래 명령을 실행해요. 창은 수업이 끝날 때까지 **닫지 마세요** (끌 때는 `Ctrl+C`).
+
+| 운영체제 | 터미널 여는 법 | 명령 |
+|---|---|---|
+| **Mac** | 터미널 앱에서 `cd ` 입력 후 폴더를 창으로 끌어다 놓고 Enter | `python3 serve.py` |
+| **Windows** | 탐색기에서 폴더를 열고 위 주소창에 `cmd` 입력 후 Enter | `py serve.py` (안 되면 `python serve.py`) |
+
+- `게임 주소: http://localhost:8000`이 나오면 켜진 거예요
+- 파이썬이 없으면 [python.org](https://www.python.org/downloads/)에서 설치해요 (Windows는 설치 첫 화면에서 **Add Python to PATH** 체크). 3.7 이상이면 되고, 추가 패키지는 필요 없어요
+
+### 3. Chrome으로 열기
+
+- **Chrome**(또는 Edge) 주소창에 **localhost:8000** 을 입력해요 (파일을 더블클릭해서 열면 카메라가 안 켜져요)
+- 카메라 권한을 물으면 **허용**
+- TV·프로젝터에 연결했다면 전체 화면으로 (Mac `Cmd+Ctrl+F`, Windows `F11`)
+
+### 4. 수업 진행
+
+1. **처음 화면**: 게임(기본 🎰 돌림판)·팀 수·난이도를 고르고, *✏️ 팀원 이름 입력*에 팀별 명단을 적어요 (한 줄에 한 명). 생명·대결 시간·라운드 수·카메라는 *⚙️ 설정*. 그다음 **📷 게임 시작!**
+   - 난이도 기준: 소1~3 **쉬움**, 소4~6 **보통**
+2. **대기실**: 컴퓨터가 뽑은 두 선수가 화면 왼쪽·오른쪽에 서요. 아래에 "✅ 보여요"가 뜨면 `Space`
+3. 돌림판 → 3·2·1 → 대결 → 결과(`Space`) → 팀 점수판(`Space`) → 다음 대결… 을 반복해요
+4. 모두 한 번씩 대결하면 대기실에 **🏆 시상식 보기**가 떠요
+5. 다음 학년으로 바꿀 때는 대기실의 **🔄 점수 초기화** → **⚙️ 처음 화면** → 새 명단 입력
+
+| 키 | 동작 |
+|---|---|
+| `Space` | 돌림판 돌리기 / 다음 화면 / 시상식 |
+| `R` | 선수 다시 뽑기 |
+| `Esc` | 대결 중단 (점수 없이 같은 대결로 돌아가요) |
+
+> 카메라 없이 연습하려면 처음 화면 아래 **🧪 카메라 없이 체험 (시뮬레이션)** 을 눌러요. 가상 선수 둘이 알아서 움직여요.
+
+### ✅ 수업 당일 체크리스트
+
+- [ ] 수업 전에 그 노트북에서 한 번 켜 보기 (대기실 아래에 **"AI: 이 컴퓨터"** 가 보이면 인터넷 없이도 OK)
+- [ ] 웹캠은 삼각대로 **가슴 높이**, 선수는 카메라에서 **3~4m** (어깨·엉덩이까지는 꼭 보여야 해요)
+- [ ] 선수 뒤에 다른 학생이 서지 않게, 응원석은 카메라 옆·뒤쪽
+- [ ] 두 선수 사이 1.5m 이상, 바닥에 테이프로 서는 자리 표시
+- [ ] 노트북이 느리면 ⚙️ 설정의 인식 모델을 **"빠름"**
+- [ ] 시간이 빠듯하면 ⚙️ 설정의 대결 시간을 **30초**로
+
+### 🔧 안 될 때
 
 | 증상 | 해결 |
 |---|---|
-| "권한이 거부됐어요" | 주소창 왼쪽 아이콘 → 카메라 "허용". Mac은 *시스템 설정 → 개인정보 보호 및 보안 → 카메라*에서 Chrome도 켜기 |
+| "권한이 거부됐어요" | 주소창 왼쪽 아이콘 → 카메라 "허용". Mac은 *시스템 설정 → 개인정보 보호 및 보안 → 카메라*에서 Chrome 켜기, Windows는 *설정 → 개인정보 → 카메라*에서 브라우저 허용 |
 | "다른 프로그램이 카메라를 쓰고 있어요" | 줌·팀즈·다른 탭 등 카메라를 쓰는 프로그램 끄기 |
-| "선택한 카메라를 찾지 못했어요" | 케이블 확인 후 카메라 목록에서 다시 고르기 |
-| "이 주소에서는 카메라를 쓸 수 없어요" | 파일을 더블클릭해서 열지 말고 `http://localhost:8000`으로 열기 |
+| "선택한 카메라를 찾지 못했어요" | 케이블 확인 후 ⚙️ 설정에서 카메라 다시 고르기 |
+| "이 주소에서는 카메라를 쓸 수 없어요" | 파일을 더블클릭하지 말고 `localhost:8000`으로 열기 |
+| `python3`/`py`를 찾을 수 없다고 나와요 | 파이썬 설치 (Windows는 *Add Python to PATH* 체크 후 터미널을 새로 열기) |
+| 8000번 포트를 이미 쓰고 있다고 나와요 | `python3 serve.py 9000`처럼 다른 번호로 켜고 `localhost:9000`으로 열기 |
+| 화면이 이상하거나 버튼이 안 눌려요 | `Cmd+Shift+R` (Windows `Ctrl+Shift+R`)로 강력 새로고침 |
+| 인식이 끊기거나 느려요 | ⚙️ 설정에서 인식 모델 "빠름", 밝은 곳에서 진행 |
+
+> 점수·팀원 명단은 **노트북마다 그 브라우저에** 저장돼요. 다른 노트북에서는 명단을 다시 입력해요.
+
+## 📸 화면 미리보기
+
+(카메라 대신 🧪 시뮬레이션 모드로 찍은 화면이에요)
+
+| | |
+|---|---|
+| ![돌림판](docs/screenshots/05-roulette-result.jpg) 🎰 돌림판 | ![팀원 이름 입력](docs/screenshots/02-team-names.jpg) ✏️ 팀원 이름 입력 |
+| ![막춤 얼음땡](docs/screenshots/09-dance.jpg) 💃 막춤 얼음땡 | ![풍선 터뜨리기](docs/screenshots/06-balloon.jpg) 🎈 풍선 터뜨리기 (🌟 별똥별) |
+| ![벽 통과하기](docs/screenshots/07-wall.jpg) 🧱 벽 통과하기 | ![골키퍼](docs/screenshots/08-goalie.jpg) 🧤 골키퍼 |
+| ![제자리 달리기](docs/screenshots/10-race.jpg) 🏃 제자리 달리기 | ![결과](docs/screenshots/11-result.jpg) 🏆 대결 결과 |
+| ![팀 점수판](docs/screenshots/12-scoreboard.jpg) 📊 팀 점수판 (순위 변동) | ![시상식](docs/screenshots/13-awards.jpg) 🥇 시상식 |
 
 ## 게임 모드
 
@@ -163,4 +222,5 @@ vendor/mediapipe  MediaPipe Tasks Vision 0.10.14 (Apache 2.0, LICENSE 포함)
 vendor/models     자세 인식 모델 (lite·full)
 vendor/fonts      Jua·Black Han Sans 글꼴 (SIL Open Font License, OFL-*.txt 포함)
 design/           화면 시안
+docs/screenshots  README 스크린샷
 ```
